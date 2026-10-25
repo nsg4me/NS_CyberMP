@@ -1,6 +1,7 @@
 // Minimal UPnP IGD client: find the router, open/close a port, read its WAN address.
 // No dependency on a UPnP package so it behaves the same on Windows and Linux.
 import dgram from 'dgram'
+import os from 'os'
 import http from 'http'
 import { URL } from 'url'
 
@@ -12,10 +13,21 @@ const SERVICE_TYPES = [
   'urn:schemas-upnp-org:service:WANPPPConnection:1'
 ]
 
-function discoverLocations (timeoutMs = 2500) {
+// Search on every IPv4 interface: with VPNs or virtual adapters the default multicast route is often not the LAN.
+function localInterfaces () {
+  const out = []
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const a of addrs || []) {
+      if (a.family === 'IPv4' && !a.internal) out.push(a.address)
+    }
+  }
+  return out.length ? out : [undefined]
+}
+
+function discoverLocations (timeoutMs = 3000) {
   return new Promise((resolve) => {
-    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
     const locations = new Set()
+    const sockets = []
     const search = (st) => Buffer.from(
       'M-SEARCH * HTTP/1.1\r\n' +
       `HOST: ${SSDP_ADDRESS}:${SSDP_PORT}\r\n` +
@@ -23,18 +35,28 @@ function discoverLocations (timeoutMs = 2500) {
       'MX: 2\r\n' +
       `ST: ${st}\r\n\r\n`)
 
-    socket.on('message', (msg) => {
-      const match = /^location:\s*(.+)$/im.exec(msg.toString())
-      if (match) locations.add(match[1].trim())
-    })
-    socket.on('error', () => {})
-    socket.bind(() => {
-      for (const st of ['urn:schemas-upnp-org:device:InternetGatewayDevice:1', ...SERVICE_TYPES]) {
-        socket.send(search(st), SSDP_PORT, SSDP_ADDRESS)
-      }
-    })
+    for (const address of localInterfaces()) {
+      const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
+      sockets.push(socket)
+      socket.on('message', (msg) => {
+        const match = /^location:\s*(.+)$/im.exec(msg.toString())
+        if (match) locations.add(match[1].trim())
+      })
+      socket.on('error', () => {})
+      socket.bind(0, address, () => {
+        try {
+          if (address) socket.setMulticastInterface(address)
+          for (const st of ['urn:schemas-upnp-org:device:InternetGatewayDevice:1', ...SERVICE_TYPES]) {
+            socket.send(search(st), SSDP_PORT, SSDP_ADDRESS)
+          }
+        } catch {}
+      })
+    }
+
     setTimeout(() => {
-      try { socket.close() } catch {}
+      for (const socket of sockets) {
+        try { socket.close() } catch {}
+      }
       resolve([...locations])
     }, timeoutMs)
   })

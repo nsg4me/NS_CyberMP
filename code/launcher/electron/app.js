@@ -1,4 +1,5 @@
 import Store from 'electron-store'
+import crypto from 'crypto'
 import { promises as fs } from 'fs'
 import decompress from 'decompress'
 import path from 'path'
@@ -103,7 +104,12 @@ electron.app.whenReady().then(async () => {
   electron.ipcMain.handle('host-start', async (event, options) => {
     const gamePath = store.get('game_path')
     if (gamePath) await installMod(gamePath)
-    return host.startHosting({ ...options, gamePath })
+    let adminPassword = store.get('admin_password')
+    if (!adminPassword) {
+      adminPassword = crypto.randomBytes(18).toString('base64url')
+      store.set('admin_password', adminPassword)
+    }
+    return host.startHosting({ ...options, gamePath, adminPassword })
   })
   electron.ipcMain.handle('host-stop', () => host.stopHosting())
   electron.ipcMain.handle('launch-game', async (event, session) => {

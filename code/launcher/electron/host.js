@@ -94,7 +94,7 @@ function serverCommand () {
   return { cmd: 'dotnet', args: [path.join(dir, 'Server.Loader.dll')] }
 }
 
-function startServerProcess () {
+function startServerProcess (adminPassword) {
   return new Promise((resolve, reject) => {
     const { cmd, args } = serverCommand()
     if (cmd !== 'dotnet' && !existsSync(cmd)) {
@@ -102,7 +102,10 @@ function startServerProcess () {
       return
     }
 
-    const child = spawn(cmd, args, { cwd: serverDir(), windowsHide: true })
+    // The server's admin web API (port 11779) refuses to start without credentials. The launcher keeps a random
+    // password per install; the admin page is http://localhost:11779 with user "admin".
+    const env = { ...process.env, CYBERPUNKMP_ADMIN_USERNAME: 'admin', CYBERPUNKMP_ADMIN_PASSWORD: adminPassword }
+    const child = spawn(cmd, args, { cwd: serverDir(), windowsHide: true, env })
     let settled = false
     let produced = false
 
@@ -213,25 +216,31 @@ export async function launchGame (gamePath, session) {
   return 'direct'
 }
 
-export async function startHosting ({ name, maxPlayers, gamePath }) {
+export async function startHosting ({ name, maxPlayers, gamePath, adminPassword }) {
   if (server) return status
 
   setStatus({ state: 'starting', lines: [], publicAddress: null, port: null, error: null })
   try {
     await writeServerConfig({ name, maxPlayers })
     log('Starting the server...')
-    server = await startServerProcess()
-    setStatus({ port: server.port })
+    server = await startServerProcess(adminPassword)
+    const port = server.port
+    setStatus({ port })
 
-    const publicIp = await openToInternet(server.port)
-    const publicAddress = publicIp ? `${publicIp}:${server.port}` : null
+    const publicIp = await openToInternet(port)
+
+    // The server can stop while the router is being set up (it logs why); do not carry on as if it were running.
+    if (!server) throw new Error('The server stopped while starting: see its message in the log.')
+
+    const publicAddress = publicIp ? `${publicIp}:${port}` : null
     setStatus({ state: 'running', publicAddress })
+    log(`Server admin page: http://localhost:11779 (user admin, password ${adminPassword})`)
     log(publicAddress
       ? `Friends join at ${publicAddress} (sent automatically with Steam invites)`
       : 'Could not work out your public address: Steam invites will not carry an address.')
 
     if (gamePath) {
-      const how = await launchGame(gamePath, { host: true, ip: '127.0.0.1', port: server.port, publicAddress })
+      const how = await launchGame(gamePath, { host: true, ip: '127.0.0.1', port, publicAddress })
       log(how === 'steam' ? 'Game started through Steam.' : 'Game started.')
     }
   } catch (err) {
