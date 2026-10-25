@@ -63,12 +63,10 @@ jobs:
     - name: Build
       run: xmake -y
 
-    - name: 'Generate server build'
-      run: xmake install -o distrib
-
+    # xmake install's rules copy Windows file names (Server.Native.dll), so upload the build output directly
     - name: 'Upload server'
       uses: actions/upload-artifact@v4
       with:
         name: server-linux
-        path: distrib/
+        path: build/linux/x64/${{ matrix.mode }}/
         if-no-files-found: warn
