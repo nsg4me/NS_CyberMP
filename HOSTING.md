@@ -33,6 +33,10 @@ Everyone needs the same launcher version (the mod is installed by the launcher).
   (Garuda/Arch: `sudo pacman -S dotnet-runtime-8.0`).
 - Windows host: allow the server through Windows Firewall when it asks.
 - Linux (Proton): set the game's Steam launch options to `WINEDLLOVERRIDES="winmm=n,b" %command%` so RED4ext loads.
+- Everyone (host and friends): the **latest Visual C++ redistributable** (https://aka.ms/vc14/vc_redist.x64.exe).
+  RED4ext and the mod are built with a recent MSVC, and with an older `msvcp140.dll` they crash on their first
+  `std::mutex` lock ("No access to memory location" / "RED4ext could not be loaded"). Under Proton, install it into
+  the game's prefix: `protontricks-launch --appid 1091500 ~/Downloads/vc_redist.x64.exe`.
 
 ## When friends cannot connect
 
