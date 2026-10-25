@@ -2,10 +2,12 @@ name: Build linux
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - main
       - dev
+      - 'port/**'
 
 jobs:
   build:
@@ -60,3 +62,13 @@ jobs:
     # Build the server
     - name: Build
       run: xmake -y
+
+    - name: 'Generate server build'
+      run: xmake install -o distrib
+
+    - name: 'Upload server'
+      uses: actions/upload-artifact@v4
+      with:
+        name: server-linux
+        path: distrib/
+        if-no-files-found: warn

@@ -2,17 +2,13 @@
 
 Red::WorldPosition Game::ToRed(const glm::vec3& acPosition)
 {
-    Red::WorldPosition pos;
-    pos.x = acPosition.x;
-    pos.y = acPosition.y;
-    pos.z = acPosition.z;
-    return pos;
+    return Red::WorldPosition(Red::Vector3{acPosition.x, acPosition.y, acPosition.z});
 }
 
 glm::vec3 Game::ToGlm(const Red::WorldPosition& acPosition)
 {
-    glm::vec3 pos{acPosition.x, acPosition.y, acPosition.z};
-    return pos;
+    const auto pos = acPosition.AsVector3();
+    return {pos.X, pos.Y, pos.Z};
 }
 
 Red::Quaternion Game::ToRed(const glm::quat& acOrientation)

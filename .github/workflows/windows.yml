@@ -2,10 +2,12 @@ name: 'Build windows'
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - main
       - dev
+      - 'port/**'
 
 # NOTE: pnpm doesn't support command 'ci' for now.
 #
@@ -16,7 +18,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest]
+        os: [windows-2022] # has Windows SDK 10.0.19041 (the build needs one below 10.0.26100)
         arch: [x64]
         mode: [releasedbg]
 
@@ -81,8 +83,17 @@ jobs:
         run: xmake pack
 
       - name: 'Upload Artifact'
-        if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: build
           path: build/xpack/Cyberpunk Multiplayer/Artifacts.zip
+
+      # The client plugin on its own, for quick in-game testing without the launcher
+      - name: 'Upload client DLL'
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-dll
+          path: |
+            build/windows/x64/${{ matrix.mode }}/CyberpunkMP.dll
+            build/windows/x64/${{ matrix.mode }}/CyberpunkMP.pdb
+          if-no-files-found: warn

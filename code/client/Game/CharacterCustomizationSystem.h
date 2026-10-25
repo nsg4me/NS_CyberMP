@@ -9,6 +9,7 @@
 #include <RED4ext/Scripting/Natives/CResource.hpp>
 #include <RED4ext/Scripting/Natives/Generated/world/RuntimeSystemEntityAppearanceChanger.hpp>
 #include "Game/Utils.h"
+#include "Game/Compat.h"
 
 using namespace Red;
 
@@ -38,11 +39,8 @@ constexpr auto GetItemRecord = Core::RawFunc<3236045910UL,
 constexpr auto GetPlacementSlot = Core::RawFunc<1934369954UL, 
     Handle<game::data::AttachmentSlot_Record> * (game::data::Item_Record::*)(Handle<game::data::AttachmentSlot_Record> *, int32_t)>();
 
-constexpr auto EvalArrayTweakDBID = Core::RawFunc<523315084UL, 
-    DynArray<TweakDBID> const & (game::data::Val::*)(void)>();
-
-constexpr auto EvalCName = Core::RawFunc<3648983380UL, 
-    CName const & (game::data::Val::*)(void)>();
+// Record flats (appearanceName, appearanceSuffixes, ...) are read through the TweakDB flat API instead of a
+// hard-coded Item_Record layout, which changes whenever a patch adds record properties.
 
 constexpr auto ResolveSuffix = Core::RawFunc<4124714348UL, 
     CString * (*)(void *, CString *, Handle<game::data::Item_Record> &, bool isMale)>();
@@ -63,8 +61,8 @@ struct Span
 constexpr auto ScheduleSynchronizedAppearanceChanges = Core::RawFunc<386815609UL, 
     void (*)(world::RuntimeSystemEntityAppearanceChanger *, 
         WeakHandle<game::Object> &, 
-        Span<world::EntityAppearanceChangeParameter::Key> * old_keys,
-        Span<world::EntityAppearanceChangeParameter::Key> * new_keys,
+        Span<Game::Compat::EntityAppearanceChangeParameter::Key> * old_keys,
+        Span<Game::Compat::EntityAppearanceChangeParameter::Key> * new_keys,
         std::function<void (void)> const &,
         uint32_t //io::EAsyncPriority
     )>();

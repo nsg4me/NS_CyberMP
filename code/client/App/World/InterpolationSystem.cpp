@@ -19,6 +19,7 @@
 #include "App/Components/InterpolationComponent.h"
 #include "App/Components/SpawningComponent.h"
 #include "Game/Utils.h"
+#include "Game/Compat.h"
 #include "Game/Movement.h"
 #include "Game/Animation/AnimationData.h"
 #include "Game/Animation/MultiMovementController.h"
@@ -100,7 +101,7 @@ void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComp
             SetSimpleMovement(apMoveSystem, aEntityComponent.Id, true);
 
             // modeled after DriveToPoint::OnUpdate_Internal, 3713079867
-            if ((vehicle->physicsState & 0x100) == 0)
+            if ((Game::Compat::GetPhysicsState(vehicle) & 0x100) == 0)
             {
                 EnablePhysics(vehicle, 0x100, false);
             }
@@ -210,12 +211,12 @@ void HookIdleController_SetAnimation(Game::Controller* apController, AnimationDa
     Game::EntityPtr entity(pMoveComponent);
     if (const auto pOwner = Red::Cast<Red::GameObject>(entity.GetValuePtr()))
     {
-        if (pOwner->tags.Contains("CyberpunkMP.Puppet"))
+        if (pOwner->tags.Contains(Red::CName("CyberpunkMP.Puppet")))
         {
             if (apController->m_type == MultiMovementController::kMulti)
                 return;
 
-            ThreadService::RunInMainThread([id = pOwner->id, pMoveComponent, apController]
+            ThreadService::RunInMainThread([id = pOwner->entityID, pMoveComponent, apController]
             {
                 const auto pSystem = Red::GetGameSystem<NetworkWorldSystem>();
                 const auto entityQuery = pSystem->query<const EntityComponent>();

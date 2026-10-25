@@ -2,6 +2,7 @@
 
 #include "AnimationData.h"
 #include "Game/Utils.h"
+#include "Game/Compat.h"
 
 #include <RED4ext/Scripting/Natives/moveComponent.hpp>
 #include <RED4ext/Scripting/Natives/Generated/anim/AnimFeature_NPCExploration.hpp>
@@ -35,8 +36,8 @@ void MultiMovementController::Tick(float delta)
 
 void MultiMovementController::GetDeltaTransform(Red::Vector4& positionDelta, Red::Quaternion& rotationDelta)
 {
-    const auto& rawPosition = m_pComponent->owner->placedComponent->localTransform.Position;
-    const auto& rawRotation = m_pComponent->owner->placedComponent->localTransform.Orientation;
+    const auto& rawPosition = m_pComponent->owner->transformComponent->localTransform.Position;
+    const auto& rawRotation = m_pComponent->owner->transformComponent->localTransform.Orientation;
     const glm::vec3 pos = Game::ToGlm(rawPosition);
     const auto rot = Game::ToGlm(rawRotation);
 
@@ -113,11 +114,11 @@ void MultiMovementController::Attach(Red::move::Component& movable)
 {
     m_pComponent = &movable;
 
-    const auto& pos = movable.owner->placedComponent->localTransform.Position;
-    const auto& rot = movable.owner->placedComponent->localTransform.Orientation;
+    const auto pos = movable.owner->transformComponent->localTransform.Position.AsVector4();
+    const auto& rot = movable.owner->transformComponent->localTransform.Orientation;
 
     const auto quat = Game::ToGlm(rot);
-    SetTransform(Red::Vector4{pos.x, pos.y, pos.z, 0.f}, eulerAngles(quat).z, 0.f);
+    SetTransform(pos, eulerAngles(quat).z, 0.f);
 
     m_animationDriver.Attach(movable.owner);
 
@@ -153,8 +154,9 @@ float MultiMovementController::GetAnimLength(Red::CName aName) const
 
 void MultiMovementController::Reset()
 {
-    m_pComponent->representation.stack.Clear();
-    m_pComponent->representation.activeIndex = -1;
-    m_pComponent->representation.activeEntry = nullptr;
-    m_pComponent->representation.active = false;
+    auto& representation = Game::Compat::GetRepresentation(m_pComponent);
+    representation.stack.Clear();
+    representation.activeIndex = -1;
+    representation.activeEntry = nullptr;
+    representation.active = false;
 }

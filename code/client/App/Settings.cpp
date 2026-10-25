@@ -12,13 +12,13 @@ void Settings::Load()
 
     if (const auto ip = launchParameters.Get("-ip"); ip)
     {
-        if (ip->size > 0)
+        if (ip->Size() > 0)
             settings.ip = (*ip)[0].c_str();
     }
 
     if (const auto port = launchParameters.Get("-port"); port)
     {
-        if (port->size > 0)
+        if (port->Size() > 0)
             settings.port = std::strtoul((*port)[0].c_str(), nullptr, 10) & 0xFFFF;
     }
 
@@ -35,7 +35,7 @@ void Settings::Load()
 
     if (const auto rpcDir = launchParameters.Get("-rpcdir"); rpcDir)
     {
-        if (rpcDir->size > 0)
+        if (rpcDir->Size() > 0)
         {
             // For some reason cyberpunk adds a \ at the start and end of the path...
             std::string path = std::string((*rpcDir)[0].c_str());

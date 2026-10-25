@@ -1,8 +1,21 @@
 #pragma once
 
+// Layouts of the game's compiled-script bundle, used to validate/generate RPC classes.
+// Taken from Codeware (MIT, psiberx) which keeps them current; ScriptDefinition grew by 0x28 after 2.2x, which moved
+// every field below compared to the original CyberpunkMP copy.
+
+#include <RED4ext/CName.hpp>
+#include <RED4ext/Containers/DynArray.hpp>
+#include <RED4ext/HashMap.hpp>
+#include <RED4ext/Map.hpp>
+#include <RED4ext/Memory/Allocators.hpp>
+#include <RED4ext/RTTITypes.hpp>
+#include <RED4ext/Scripting/CProperty.hpp>
+#include <RED4ext/Scripting/Functions.hpp>
 
 namespace Game
 {
+
 enum class EScriptDefinition : uint8_t
 {
     Type = 0,
@@ -26,16 +39,25 @@ enum class EScriptVisibility : uint8_t
 
 struct ScriptDefinition
 {
-    virtual Red::Memory::IAllocator* GetAllocator() = 0; // 00
-    virtual ~ScriptDefinition() = 0;                     // 08
-    virtual EScriptDefinition GetType() = 0;             // 10
-    virtual EScriptVisibility GetVisibility() = 0;       // 18
-    virtual ScriptDefinition* GetParent() = 0;           // 20
-    virtual Red::CName GetName() = 0;                    // 28
-    virtual bool IsNative() = 0;                         // 30
+    virtual RED4ext::Memory::IAllocator* GetAllocator() = 0; // 00
+    virtual ~ScriptDefinition() = 0;                // 08
+    virtual EScriptDefinition GetType() = 0;        // 10
+    virtual EScriptVisibility GetVisibility() = 0;  // 18
+    virtual ScriptDefinition* GetParent() = 0;      // 20
+    virtual RED4ext::CName GetName() = 0;                    // 28
+    virtual bool IsNative() = 0;                    // 30
 
-    Red::CName name; // 08
-    uint64_t unk10;  // 10
+    RED4ext::CName name;          // 08
+    uint64_t unk10;      // 10
+    uint8_t unk18[0x28]; // 18
+};
+
+struct ScriptFileInfo : ScriptDefinition
+{
+    uint32_t crc;   // 40
+    uint32_t index; // 44
+    uint32_t hash;  // 48 - Murmur3 of path
+    RED4ext::CString path;   // 50
 };
 
 enum class EScriptType : uint8_t
@@ -51,11 +73,13 @@ enum class EScriptType : uint8_t
 
 struct ScriptType : ScriptDefinition
 {
-    Red::CBaseRTTIType* rttiType; // 18
-    ScriptDefinition* innerType;  // 20
-    int32_t arraySize;            // 28
-    EScriptType metaType;         // 2C
+    RED4ext::CBaseRTTIType* rttiType;     // 40
+    ScriptDefinition* innerType; // 48
+    int32_t arraySize;           // 50
+    EScriptType metaType;        // 54
 };
+RED4EXT_ASSERT_OFFSET(ScriptType, innerType, 0x48);
+RED4EXT_ASSERT_OFFSET(ScriptType, metaType, 0x54);
 
 struct ScriptProperty : ScriptDefinition
 {
@@ -72,14 +96,15 @@ struct ScriptProperty : ScriptDefinition
         uint16_t b08 : 1;          // 08
     };
 
-    Red::CProperty* rttiProp;                          // 18
-    ScriptDefinition* parent;                          // 20
-    Flags flags;                                       // 28
-    Map<Red::CString, Red::CString> defaults;          // 30
-    EScriptVisibility visibility;                      // 58
-    Red::HashMap<Red::CName, Red::CString> attributes; // 60
-    ScriptType* type;                                  // 90
+    RED4ext::CProperty* rttiProp;                // 40
+    ScriptDefinition* parent;           // 48
+    Flags flags;                        // 50
+    RED4ext::Map<RED4ext::CString, RED4ext::CString> defaults;     // 58
+    EScriptVisibility visibility;       // 80
+    RED4ext::HashMap<RED4ext::CName, RED4ext::CString> attributes; // 88
+    ScriptType* type;                   // B8
 };
+RED4EXT_ASSERT_OFFSET(ScriptProperty, type, 0xB8);
 
 struct ScriptClass;
 struct ScriptFunction;
@@ -94,26 +119,18 @@ struct ScriptParameter : ScriptDefinition
         uint8_t isConst : 1;        // 03
     };
 
-    Red::CProperty* rttiProp; // 18
-    ScriptFunction* function; // 20
-    ScriptType* type;         // 28
-    Flags flags;              // 30
+    RED4ext::CProperty* rttiProp;      // 40
+    ScriptFunction* function; // 48
+    ScriptType* type;         // 50
+    Flags flags;              // 58
 };
 
 struct ScriptLocalVar : ScriptDefinition
 {
-    Red::CProperty* rttiProp; // 18
-    ScriptFunction* function; // 20
-    ScriptType* type;         // 28
-    uint8_t unk30;            // 30
-};
-
-struct ScriptFileInfo : ScriptDefinition
-{
-    uint32_t crc;      // 18
-    uint32_t index;    // 1C
-    uint32_t hash;     // 20 - Murmur3 of path
-    Red::CString path; // 28
+    RED4ext::CProperty* rttiProp;      // 40
+    ScriptFunction* function; // 48
+    ScriptType* type;         // 50
+    uint8_t unk58;            // 58
 };
 
 struct ScriptFunction : ScriptDefinition
@@ -140,24 +157,23 @@ struct ScriptFunction : ScriptDefinition
         uint32_t isScripted : 1;   // 11 - Seems pointless, for all functions isScripted != isNative
     };
 
-    Red::CBaseFunction* rttiFunc;                      // 18
-    ScriptClass* parent;                               // 20
-    Red::CName shortName;                              // 28
-    Red::DynArray<ScriptParameter*> params;            // 30
-    Red::DynArray<ScriptLocalVar*> localVars;          // 40
-    Red::HashMap<Red::CName, Red::CString> attributes; // 50
-    ScriptType* returnType;                            // 80
-    uint16_t unk88;                                    // 88
-    ScriptFunction* overridden;                        // 90
-    Flags flags;                                       // 98
-    Red::CName operatorName;                           // A0
-    uint8_t castValue;                                 // A8
-    EScriptVisibility visibility;                      // A9
-    Red::DynArray<uint8_t> code;                       // B0
-    ScriptFileInfo* sourceFile;                        // C0
-    uint32_t sourceLine;                               // C8
+    RED4ext::CBaseFunction* rttiFunc;             // 40
+    ScriptClass* parent;                 // 48
+    RED4ext::CName shortName;                     // 50
+    RED4ext::DynArray<ScriptParameter*> params;   // 58
+    RED4ext::DynArray<ScriptLocalVar*> localVars; // 68
+    RED4ext::HashMap<RED4ext::CName, RED4ext::CString> attributes;  // 78
+    ScriptType* returnType;              // A8
+    uint16_t unkB0;                      // B0
+    ScriptFunction* overridden;          // B8
+    Flags flags;                         // C0
+    RED4ext::CName operatorName;                  // C8
+    uint8_t castValue;                   // D0
+    EScriptVisibility visibility;        // D1
+    RED4ext::DynArray<uint8_t> code;              // D8
+    ScriptFileInfo* sourceFile;          // E8
+    uint32_t sourceLine;                 // F0
 };
-RED4EXT_ASSERT_SIZE(ScriptFunction, 0xD0);
 
 struct ScriptClass : ScriptDefinition
 {
@@ -170,36 +186,64 @@ struct ScriptClass : ScriptDefinition
         uint8_t isStruct : 1;     // 04
     };
 
-    Red::CClass* rttiClass;                            // 18
-    ScriptClass* parent;                               // 20
-    Red::DynArray<ScriptProperty*> properties;         // 28
-    Red::DynArray<ScriptProperty*> overrides;          // 38
-    Red::DynArray<ScriptFunction*> functions;          // 48
-    Red::HashMap<Red::CName, Red::CString> attributes; // 58
-    EScriptVisibility visibility;                      // 88
-    Flags flags;                                       // 89
+    RED4ext::CClass* rttiClass;                    // 40
+    ScriptClass* parent;                  // 48
+    RED4ext::DynArray<ScriptProperty*> properties; // 50
+    RED4ext::DynArray<ScriptProperty*> overrides;  // 60
+    uint8_t unk70[0x20];                  // 70
+    RED4ext::DynArray<ScriptFunction*> functions;  // 90
+    RED4ext::HashMap<RED4ext::CName, RED4ext::CString> attributes;   // A0
+    EScriptVisibility visibility;         // D0
+    Flags flags;                          // D1
+};
+RED4EXT_ASSERT_OFFSET(ScriptClass, parent, 0x48);
+RED4EXT_ASSERT_OFFSET(ScriptClass, properties, 0x50);
+RED4EXT_ASSERT_OFFSET(ScriptClass, overrides, 0x60);
+RED4EXT_ASSERT_OFFSET(ScriptClass, functions, 0x90);
+RED4EXT_ASSERT_OFFSET(ScriptClass, flags, 0xD1);
+
+struct ScriptConstant : ScriptDefinition
+{
+    int64_t rttiValue;        // 40 - Used only for natives
+    ScriptDefinition* parent; // 48 - Enum or Bitfield
+    int64_t value;            // 50
+    bool isNative;            // 58
+};
+
+struct ScriptEnum : ScriptDefinition
+{
+    RED4ext::CEnum* rttiEnum;                     // 40
+    RED4ext::DynArray<ScriptConstant*> constants; // 48
+    uint8_t size;                        // 58
+    bool isNative;                       // 59
+    EScriptVisibility visibility;        // 5A
+};
+
+struct ScriptBitfield : ScriptDefinition
+{
+    RED4ext::CBitfield* rttiBitfield;             // 40
+    RED4ext::DynArray<ScriptConstant*> constants; // 48
+    uint8_t size;                        // 58
+    bool isNative;                       // 59
+    EScriptVisibility visibility;        // 5A
 };
 
 struct ScriptBundle
 {
-    ScriptBundle();
-    ~ScriptBundle();
-
-    Red::HashMap<Red::CName, ScriptDefinition*> definitionsByName; // 00
-    Red::HashMap<Red::CName, ScriptFunction*> functionsByName;     // 30
-    Red::HashMap<Red::CName, ScriptType*> typesByName;             // 60
-    Red::DynArray<ScriptFileInfo*> files;                          // 90
-    Red::DynArray<ScriptFunction*> globals;                        // A0
-    Red::DynArray<void*> enums;                                    // B0
-    Red::DynArray<void*> bitfields;                                // C0
-    Red::DynArray<ScriptClass*> classes;                           // D0
-    Red::DynArray<ScriptType*> types;                              // E0
-    Red::DynArray<Red::CString> strings;                           // F0
-    Red::HashMap<Red::CName, void*> unk100;                        // 100
-    Red::SharedSpinLock typesLock;                                 // 130
-    CRITICAL_SECTION unk138;                                       // 138
+    void* unk00;                                         // 00
+    RED4ext::HashMap<RED4ext::CName, ScriptDefinition*> definitionsByName; // 08
+    RED4ext::HashMap<RED4ext::CName, ScriptFunction*> functionsByName;     // 38
+    RED4ext::HashMap<RED4ext::CName, ScriptType*> typesByName;             // 68
+    RED4ext::DynArray<ScriptFileInfo*> files;                     // 98
+    RED4ext::DynArray<ScriptFunction*> globals;                   // A8
+    RED4ext::DynArray<ScriptEnum*> enums;                         // B8
+    RED4ext::DynArray<ScriptBitfield*> bitfields;                 // C8
+    RED4ext::DynArray<ScriptClass*> classes;                      // D8
+    RED4ext::DynArray<ScriptType*> types;                         // E8
+    RED4ext::DynArray<RED4ext::CString> strings;                           // F8
 };
-RED4EXT_ASSERT_SIZE(ScriptBundle, 0x160);
+RED4EXT_ASSERT_OFFSET(ScriptBundle, definitionsByName, 0x08);
+RED4EXT_ASSERT_OFFSET(ScriptBundle, classes, 0xD8);
 
 struct StringView
 {
@@ -207,6 +251,7 @@ struct StringView
     uint32_t length;
 };
 
+// The validator's error report. Only the first field after the vtable is touched.
 struct ScriptReport
 {
     virtual ~ScriptReport() = default;

@@ -70,6 +70,10 @@
 #include <RED4ext/Scripting/Natives/Generated/ent/EntityID.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 
+// The upstream SDK's Handle<T> asserts T is complete; see the header for why these are needed.
+#include "Game/HandleTypes.h"
+#include <RED4ext/Containers/StaticArray.hpp>
+
 #include <nameof.hpp>
 #include <semver.hpp>
 

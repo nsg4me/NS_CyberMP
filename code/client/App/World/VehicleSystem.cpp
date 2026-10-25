@@ -9,6 +9,7 @@
 
 #include "NetworkWorldSystem.h"
 #include "Game/Utils.h"
+#include "Game/Compat.h"
 #include "App/Components/EntityComponent.h"
 #include "App/Components/AttachedComponent.h"
 #include "App/Components/SpawningComponent.h"
@@ -239,7 +240,7 @@ void VehicleSystem::DoMount(flecs::entity aCharacter, Red::EntityID aVehicle, Re
     const auto handle = Red::Handle(this);
     bool res;
 
-    Red::Detail::CallFunctionWithArgs(m_pEnterVehicle, handle, res, character, vehicle->id, aSit);
+    Red::Detail::CallFunctionWithArgs(m_pEnterVehicle, handle, res, character, vehicle->entityID, aSit);
 
     aCharacter.add<AttachedComponent>();
 
@@ -254,8 +255,8 @@ void VehicleSystem::DoMount(flecs::entity aCharacter, Red::EntityID aVehicle, Re
         // AttachLocomotionController(component, controller);
         SetIsPlayerControlled(vehicle, false);
         // turn on engine
-        reinterpret_cast<void (*)(Red::vehicle::WheeledBaseObject*, bool)>(*(uintptr_t*)(*(uintptr_t*)vehicle.instance + 0x328))(vehicle, true);
-        vehicle->engineData->unk61 = 0;
+        Game::Compat::TurnEngineOn(vehicle, true);
+        Game::Compat::ClearEngineFlag61(vehicle);
         SetFlags(vehicle, 0x10);
         SetFlags(vehicle, 0x80);
         SetKinematic(vehicle, true);

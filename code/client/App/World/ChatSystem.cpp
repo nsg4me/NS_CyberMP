@@ -3,6 +3,7 @@
 #include "App/Network/NetworkService.h"
 #include "App/ChatMessageEvent.h"
 #include <RED4ext/Scripting/Natives/Generated/game/ui/IGameSystemUI.hpp>
+#include <RED4ext/Scripting/Natives/Generated/red/Event.hpp>
 
 void ChatSystem::OnWorldAttached(RED4ext::world::RuntimeScene* aScene)
 {
@@ -22,8 +23,11 @@ void ChatSystem::HandleChatMessage(const PacketEvent<server::ChatMessage>& aMess
     evt->author = RED4ext::CString(aMessage.get_username());
     evt->message = RED4ext::CString(aMessage.get_message());
 
+    // QueueEvent through the script-visible UISystem function (the fork declared it as a native virtual).
     auto uiSystem = Red::GetGameSystem<RED4ext::game::ui::IGameSystemUI>();
-    uiSystem->QueueEvent(RED4ext::Handle(evt));
+    Red::Handle<Red::red::Event> handle(reinterpret_cast<Red::red::Event*>(evt));
+    if (!Red::CallVirtual(uiSystem, "QueueEvent", handle))
+        spdlog::warn("[Chat] UISystem.QueueEvent failed");
 }
 
 void ChatSystem::OnInitialize(const RED4ext::JobHandle& aJob)

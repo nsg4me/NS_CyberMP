@@ -1,6 +1,7 @@
 #include "RpcService.h"
 
 #include "RpcValidator.h"
+#include <RED4ext/Api/v1/GameState.hpp>
 #include "App/Network/NetworkService.h"
 #include <RED4ext/Scripting/Natives/GameTime.hpp>
 
@@ -9,9 +10,9 @@
 #include "App/Settings.h"
 
 
-RpcService::RpcService(RED4ext::PluginHandle aPlugin, const RED4ext::Sdk* aSdk)
+RpcService::RpcService(RED4ext::v1::PluginHandle aPlugin, const RED4ext::v1::Sdk* aSdk)
 {
-    RED4ext::GameState state{nullptr, nullptr, nullptr};
+    RED4ext::v1::GameState state{nullptr, nullptr, nullptr};
     state.OnExit = &PrepareRpc;
 
     aSdk->gameStates->Add(aPlugin, RED4ext::EGameStateType::Initialization, &state);
@@ -97,7 +98,7 @@ bool RpcService::Call(const server::RpcCall& aMessage) const
         return false;
 
     const auto pFunc = pContext->function;
-    const auto combinedArgCount = pFunc->params.size;
+    const auto combinedArgCount = pFunc->params.Size();
 
     static auto* cScriptContext = static_cast<RED4ext::IScriptable*>(Red::GetClass("entEntity")->CreateInstance());
 
@@ -125,7 +126,7 @@ bool RpcService::Call(const server::RpcCall& aMessage) const
         }
 
         stack.args = args.data();
-        stack.argsCount = pFunc->params.size;
+        stack.argsCount = pFunc->params.Size();
     }
 
     Red::Detail::CallFunctionWithStack(nullptr, pFunc, stack);

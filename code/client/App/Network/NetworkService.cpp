@@ -88,13 +88,13 @@ void NetworkService::HandleAuthentication(const PacketEvent<server::Authenticati
     Red::Handle<Red::GameObject> player;
     system->GetLocalPlayerControlledGameObject(player);
 
-    const auto& cEntityPosition = player->placedComponent->localTransform.Position;
-    const auto cEntityRotation = Game::ToGlm(player->placedComponent->localTransform.Orientation);
+    const auto cEntityPosition = player->transformComponent->localTransform.Position.AsVector3();
+    const auto cEntityRotation = Game::ToGlm(player->transformComponent->localTransform.Orientation);
 
     common::Vector3 pos;
-    pos.set_x(cEntityPosition.x);
-    pos.set_y(cEntityPosition.y);
-    pos.set_z(cEntityPosition.z);
+    pos.set_x(cEntityPosition.X);
+    pos.set_y(cEntityPosition.Y);
+    pos.set_z(cEntityPosition.Z);
 
     request.set_position(pos);
     request.set_rotation(cEntityRotation.z);

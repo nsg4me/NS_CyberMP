@@ -15,6 +15,7 @@
 #include "App/Components/SpawningComponent.h"
 #include "App/Components/InterpolationComponent.h"
 #include "Game/Utils.h"
+#include "Game/Compat.h"
 #include "Game/CharacterCustomizationSystem.h"
 
 #include "ChatSystem.h"
@@ -46,7 +47,7 @@ bool NetworkWorldSystem::Spawn(uint64_t aServerId, const Red::Vector4& aPosition
     auto reader = CMPReader(aCcstate);
     CharacterCustomizationState_Serialize(stateHandle.instance, &reader);
 
-    if (!Red::Detail::CallFunctionWithArgs(m_pCreatePuppet, handle, id, aPosition, aRotation, stateHandle.instance->isBodyGenderMale))
+    if (!Red::Detail::CallFunctionWithArgs(m_pCreatePuppet, handle, id, aPosition, aRotation, Game::Compat::IsBodyGenderMale(stateHandle.instance)))
         return false;
 
     auto apprSystem = Red::GetGameSystem<NetworkWorldSystem>()->GetAppearanceSystem();
@@ -266,7 +267,7 @@ void NetworkWorldSystem::UpdatePlayerLocation() const
         {
             auto transform = Red::WorldTransform();
 
-            transform = vehicle->rigidBody->currentTransform;
+            transform = Game::Compat::GetWorldTransform(vehicle);
 
             // const auto cEntityRotation = eulerAngles(Game::ToGlm(vehicle->placedComponent->worldTransform.Orientation));
 
@@ -283,14 +284,14 @@ void NetworkWorldSystem::UpdatePlayerLocation() const
             // // GetCurrentTransform
             // reinterpret_cast<void (*)(const Red::vehicle::MoveSystem *, const Red::EntityID &, Red::WorldTransform*)>(*(uintptr_t*)(*(uintptr_t*)moveSystem + 0x250))(moveSystem, vehicle->id, &transform);
 
-            const auto cEntityPosition = transform.Position;
+            const auto cEntityPosition = transform.Position.AsVector3();
             const auto cEntityRotation = eulerAngles(Game::ToGlm(transform.Orientation));
-            float speed = vehicle->rigidBody->velocity.Magnitude();
+            float speed = Game::Compat::GetSpeed(vehicle);
 
             common::Vector3 pos;
-            pos.set_x(cEntityPosition.x);
-            pos.set_y(cEntityPosition.y);
-            pos.set_z(cEntityPosition.z);
+            pos.set_x(cEntityPosition.X);
+            pos.set_y(cEntityPosition.Y);
+            pos.set_z(cEntityPosition.Z);
 
             common::Vector3 rot;
             rot.set_x(cEntityRotation.x);
@@ -319,14 +320,15 @@ void NetworkWorldSystem::UpdatePlayerLocation() const
     }
     else
     {
-        const auto cEntityPosition = puppet->placedComponent->localTransform.Position;
-        const auto cEntityRotation = eulerAngles(Game::ToGlm(puppet->placedComponent->worldTransform.Orientation));
-        float speed = puppet->moveComponent->speed.Magnitude();
+        const auto cEntityPosition = puppet->transformComponent->localTransform.Position.AsVector3();
+        const auto cEntityRotation = eulerAngles(Game::ToGlm(puppet->transformComponent->worldTransform.Orientation));
+        const auto* pMoveComponent = Game::Compat::GetMoveComponent(puppet);
+        float speed = pMoveComponent ? pMoveComponent->speed.Magnitude() : 0.f;
 
         common::Vector3 pos;
-        pos.set_x(cEntityPosition.x);
-        pos.set_y(cEntityPosition.y);
-        pos.set_z(cEntityPosition.z);
+        pos.set_x(cEntityPosition.X);
+        pos.set_y(cEntityPosition.Y);
+        pos.set_z(cEntityPosition.Z);
 
         client::MoveEntityRequest request;
         request.set_position(pos);
@@ -438,12 +440,12 @@ void NetworkWorldSystem::OnConnected()
             const auto pEntity = GetEntity(aSpawning.Id);
             if (const auto pOwner = Red::Cast<Red::GameObject>(pEntity))
             {
-                if (pOwner->tags.Contains("CyberpunkMP.Vehicle"))
+                if (pOwner->tags.Contains(Red::CName("CyberpunkMP.Vehicle")))
                     return;
 
                  aEntity.emplace<EntityComponent>(aSpawning.Id, false, aSpawning.Controller);
                  aEntity.remove<SpawningComponent>();
-                 pOwner->tags.Add("CyberpunkMP.Puppet");
+                 pOwner->tags.Add(Red::CName("CyberpunkMP.Puppet"));
             }
         });
 

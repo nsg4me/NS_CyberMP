@@ -4,7 +4,11 @@
 #include <App/Settings.h>
 #include <RED4ext/LaunchParameters.hpp>
 
-#include "RED4ext/Api/EMainReason.hpp"
+#include <RED4ext/Api/v1/EMainReason.hpp>
+#include <RED4ext/Api/v1/PluginInfo.hpp>
+#include <RED4ext/Api/v1/Runtime.hpp>
+#include <RED4ext/Api/v1/Version.hpp>
+#include <RED4ext/Api/ApiVersion.hpp>
 
 extern void CoreStubsInit();
 
@@ -40,12 +44,12 @@ void Initialize()
 
 #include "App/Application.h"
 
-RED4EXT_C_EXPORT bool Main(RED4ext::PluginHandle aHandle, RED4ext::EMainReason aReason, const RED4ext::Sdk* aSdk)
+RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4ext::v1::EMainReason aReason, const RED4ext::v1::Sdk* aSdk)
 {
 
     switch (aReason)
     {
-    case RED4ext::EMainReason::Load:
+    case RED4ext::v1::EMainReason::Load:
     {
         Initialize();
 
@@ -60,7 +64,7 @@ RED4EXT_C_EXPORT bool Main(RED4ext::PluginHandle aHandle, RED4ext::EMainReason a
         TweakXL::RegisterTweaks(canonical(GCyberpunkMpLocation / TP_TWEAKS_LOCATION));
 
         const auto inputLoaderModule = LoadLibrary("input_loader");
-        void(*pInputLoaderAdd)(RED4ext::PluginHandle, const wchar_t*);
+        void(*pInputLoaderAdd)(RED4ext::v1::PluginHandle, const wchar_t*);
         if (inputLoaderModule != nullptr && (pInputLoaderAdd = reinterpret_cast<decltype(pInputLoaderAdd)>(GetProcAddress(inputLoaderModule, "Add"))))
         {
             const wchar_t* input_path = canonical(GCyberpunkMpLocation / TP_INPUTS_LOCATION).c_str();
@@ -85,7 +89,7 @@ RED4EXT_C_EXPORT bool Main(RED4ext::PluginHandle aHandle, RED4ext::EMainReason a
 
         break;
     }
-    case RED4ext::EMainReason::Unload:
+    case RED4ext::v1::EMainReason::Unload:
     {
         if (Settings::IsDisabled())
             return false;
@@ -99,17 +103,19 @@ RED4EXT_C_EXPORT bool Main(RED4ext::PluginHandle aHandle, RED4ext::EMainReason a
     return true;
 }
 
-RED4EXT_C_EXPORT void Query(RED4ext::PluginInfo* aInfo)
+RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* aInfo)
 {
     aInfo->name = L"CyberpunkMP";
     aInfo->author = L"Tilted Phoques SRL";
-    aInfo->version = RED4EXT_SEMVER(0, 1, 0);
+    aInfo->version = RED4EXT_V1_SEMVER(0, 1, 0);
 
-    aInfo->runtime = RED4EXT_V0_RUNTIME_INDEPENDENT;
-    aInfo->sdk = RED4EXT_SDK_LATEST;
+    // Struct layouts from the SDK are only valid for the game version it was generated for, so refuse to load on any
+    // other version instead of crashing at runtime.
+    aInfo->runtime = RED4EXT_V1_RUNTIME_VERSION_LATEST;
+    aInfo->sdk = RED4EXT_V1_SDK_VERSION_CURRENT;
 }
 
-RED4EXT_C_EXPORT uint32_t Supports()
+RED4EXT_C_EXPORT uint32_t RED4EXT_CALL Supports()
 {
-    return RED4EXT_API_VERSION_LATEST;
+    return RED4EXT_API_VERSION_1;
 }

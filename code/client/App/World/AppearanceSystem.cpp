@@ -2,8 +2,6 @@
 
 #include "RED4ext/Scripting/Natives/gameIEntityStubSystem.hpp"
 #include "RED4ext/Scripting/Natives/gameITransactionSystem.hpp"
-#include "RED4ext/Scripting/Natives/gameItemModParams.hpp"
-#include "RED4ext/Scripting/Natives/gameAddItemToSlotContext.hpp"
 #include "RED4ext/Scripting/Natives/Generated/game/EntityStubComponentPS.hpp"
 #include "RED4ext/Scripting/Natives/Generated/game/data/Item_Record.hpp"
 #include "RED4ext/NativeTypes.hpp"
@@ -13,6 +11,10 @@
 #include "NetworkWorldSystem.h"
 #include "Game/Utils.h"
 #include "Game/CharacterCustomizationSystem.h"
+#include "Game/ScriptCall.h"
+#include "Game/Compat.h"
+#include <RED4ext/Scripting/Natives/Generated/ERenderingPlane.hpp>
+#include <RED4ext/Containers/StaticArray.hpp>
 #include "RED4ext/Scripting/Natives/Generated/game/PuppetPS.hpp"
 
 AppearanceSystem::AppearanceSystem()
@@ -98,9 +100,9 @@ void AddItems(Red::Handle<Red::game::Object> & object, Red::DynArray<Red::TweakD
         Red::CString placementStr;
         Red::CallStatic("gamedataTDBIDHelper", "ToStringDEBUG", placementStr, placementSlot);
 
-        auto appearanceName = EvalCName(&item_record.instance->appearanceName);
+        auto appearanceName = Red::TweakDB::Get()->GetValue<Red::CName>(Red::TweakDBID(item, ".appearanceName"));
         std::string appearance = appearanceName.ToString();
-        // auto suffixes = EvalArrayTweakDBID(&item_record.instance->appearanceSuffixes);
+        // auto suffixes = Red::TweakDB::Get()->GetValue<Red::DynArray<Red::TweakDBID>>(Red::TweakDBID(item, ".appearanceSuffixes"));
         // for (auto const suffix : suffixes) {
         //     if (suffix == Red::TweakDBID("itemsFactoryAppearanceSuffix.Gender")) {
         //         if (state->isBodyGenderMale) {
@@ -134,29 +136,27 @@ void AddItems(Red::Handle<Red::game::Object> & object, Red::DynArray<Red::TweakD
 
         appearanceName = appearance.c_str();
 
-        auto params = Red::game::ItemModParams();
-        params.quantity = 1;
-        params.itemID = itemID;
+        // GiveItem / AddItemToSlot go through the script-visible TransactionSystem functions (looked up by name)
+        // instead of the native vtable slots, which moved in 2.5.
+        int32_t quantity = 1;
+        auto renderingPlane = Red::ERenderingPlane::RPl_Scene;
 
-        auto context = Red::game::AddItemToSlotContext();
-        context.object = object.instance;
-        context.slotID = placementSlot;
-        context.itemID = itemID;
-        // context.itemID.flags |= 1;
-        // context.ignoreRestrictions = 1;
-        context.renderingPlane = Red::ERenderingPlane::RPl_Scene;
-        // context.renderingPlane = Red::ERenderingPlane::RPl_Weapon;
-        context.garmentAppearanceName = appearanceName;
-
-        auto given = system->GiveItem(*object, params);
+        bool given = false;
+        Game::CallNamed(system, "GiveItem", given,
+                        {Game::Arg("obj", object), Game::Arg("itemID", itemID), Game::Arg("quantity", quantity)});
         if (given)
         {
-            auto added = system->AddItemToSlot(context);
+            bool added = false;
+            Game::CallNamed(system, "AddItemToSlot", added,
+                            {Game::Arg("obj", object), Game::Arg("slotID", placementSlot), Game::Arg("itemID", itemID),
+                             Game::Arg("renderingPlane", renderingPlane),
+                             Game::Arg("garmentAppearanceName", appearanceName)});
             if (!added)
             {
                 spdlog::info("AddItemToSlot failed");
             }
-        } else
+        }
+        else
         {
             spdlog::info("GiveItem failed");
         }
@@ -165,16 +165,16 @@ void AddItems(Red::Handle<Red::game::Object> & object, Red::DynArray<Red::TweakD
 
 bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
 {
-    if (m_playerCcstate.find(object.instance->id) == m_playerCcstate.end()) 
+    if (m_playerCcstate.find(object.instance->entityID) == m_playerCcstate.end()) 
     {
         // not our entity
         return false;
     }
 
-    auto bytes = m_playerCcstate[object.instance->id];
+    auto bytes = m_playerCcstate[object.instance->entityID];
     if (bytes.size() == 0) 
     {
-        spdlog::info("no bytes for {}", object->id.hash);
+        spdlog::info("no bytes for {}", object->entityID.hash);
         return false;
     }
 
@@ -199,8 +199,8 @@ bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
     // Red::CallVirtual(this, "AddItems", object);
 
     // c++ method
-    auto items = m_playerEquipment[object.instance->id];
-    // if (stateHandle.instance->isBodyGenderMale) {
+    auto items = m_playerEquipment[object.instance->entityID];
+    // if (Game::Compat::IsBodyGenderMale(stateHandle.instance)){
     //     // items.PushBack("Items.PlayerMaTppHead");
     //     items.PushBack("Items.MuppetMaHead");
     // } else {
@@ -300,40 +300,40 @@ bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
     {
         spdlog::info("Scheduling change");
 
-        Red::DynArray<Red::world::EntityAppearanceChangeParameter::Key> keys;
-        stateHandle.instance->GetHeadCustomization("TPP", true, keys);
-        stateHandle.instance->GetHeadCustomization("face", true, keys);
-        stateHandle.instance->GetHeadCustomization("hairs", true, keys);
-        if (stateHandle.instance->isBodyGenderMale) 
+        Red::DynArray<Game::Compat::EntityAppearanceChangeParameter::Key> keys;
+        Game::Compat::GetCustomization(Game::Compat::CCState_GetHeadCustomization, stateHandle.instance, "TPP", true, keys);
+        Game::Compat::GetCustomization(Game::Compat::CCState_GetHeadCustomization, stateHandle.instance, "face", true, keys);
+        Game::Compat::GetCustomization(Game::Compat::CCState_GetHeadCustomization, stateHandle.instance, "hairs", true, keys);
+        if (Game::Compat::IsBodyGenderMale(stateHandle.instance))
         {
-            stateHandle.instance->GetHeadCustomization("beards", true, keys);
+            Game::Compat::GetCustomization(Game::Compat::CCState_GetHeadCustomization, stateHandle.instance, "beards", true, keys);
         }
 
         // does all of them
-        // stateHandle.instance->GetHeadCustomization("character_customization", true, keys);
+        // Game::Compat::GetCustomization(Game::Compat::CCState_GetHeadCustomization, stateHandle.instance, "character_customization", true, keys);
 
-        stateHandle.instance->GetBodyCustomization("TPP_Body", true, keys);
+        Game::Compat::GetCustomization(Game::Compat::CCState_GetBodyCustomization, stateHandle.instance, "TPP_Body", true, keys);
         // make genitals appear as well
-        // stateHandle.instance->GetBodyCustomization("character_creation", true, keys);
+        // Game::Compat::GetCustomization(Game::Compat::CCState_GetBodyCustomization, stateHandle.instance, "character_creation", true, keys);
         // pops through clothes lol
-        // stateHandle.instance->GetBodyCustomization("genitals", true, keys);
-        stateHandle.instance->GetBodyCustomization("breast", true, keys);
-        stateHandle.instance->GetBodyCustomization("lifted_feet", true, keys);
-        stateHandle.instance->GetBodyCustomization("flat_feet", true, keys);
+        // Game::Compat::GetCustomization(Game::Compat::CCState_GetBodyCustomization, stateHandle.instance, "genitals", true, keys);
+        Game::Compat::GetCustomization(Game::Compat::CCState_GetBodyCustomization, stateHandle.instance, "breast", true, keys);
+        Game::Compat::GetCustomization(Game::Compat::CCState_GetBodyCustomization, stateHandle.instance, "lifted_feet", true, keys);
+        Game::Compat::GetCustomization(Game::Compat::CCState_GetBodyCustomization, stateHandle.instance, "flat_feet", true, keys);
 
-        // stateHandle.instance->GetArmsCustomization("character_customization", true, keys);
-        stateHandle.instance->GetArmsCustomization("holstered_default", true, keys);
-        stateHandle.instance->GetArmsCustomization("nails", true, keys);
+        // Game::Compat::GetCustomization(Game::Compat::CCState_GetArmsCustomization, stateHandle.instance, "character_customization", true, keys);
+        Game::Compat::GetCustomization(Game::Compat::CCState_GetArmsCustomization, stateHandle.instance, "holstered_default", true, keys);
+        Game::Compat::GetCustomization(Game::Compat::CCState_GetArmsCustomization, stateHandle.instance, "nails", true, keys);
 
         auto changer = Red::GetRuntimeSystem<Red::world::RuntimeSystemEntityAppearanceChanger>();
         Red::WeakHandle<Red::game::Object> weakHandle = object;
-        Span<Red::world::EntityAppearanceChangeParameter::Key> old_keys = {
+        Span<Game::Compat::EntityAppearanceChangeParameter::Key> old_keys = {
             .start = nullptr,
             .end = nullptr
         };
-        Span<Red::world::EntityAppearanceChangeParameter::Key> new_keys = {
-            .start = keys.entries,
-            .end = &keys.entries[keys.size]
+        Span<Game::Compat::EntityAppearanceChangeParameter::Key> new_keys = {
+            .start = keys.Data(),
+            .end = keys.Data() + keys.Size()
         };
         const std::function<void (void)> callback = [stateHandle = std::move(stateHandle), object = std::move(object)](void) 
         {
@@ -351,7 +351,7 @@ bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
             // // stateHandle.instance->MorphHead("face", true, object, true);
             // stateHandle.instance->MorphHead("hairs", true, object, true);
             
-            // if (stateHandle.instance->isBodyGenderMale) 
+            // if (Game::Compat::IsBodyGenderMale(stateHandle.instance))
             // {
             //     stateHandle.instance->MorphHead("beards", true, object, true);
             // }
@@ -367,7 +367,7 @@ bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
             // // stateHandle.instance->ApplyHead("face", true, object);
             // stateHandle.instance->ApplyHead("hairs", true, object);
         
-            // if (stateHandle.instance->isBodyGenderMale) 
+            // if (Game::Compat::IsBodyGenderMale(stateHandle.instance))
             // {
             //     stateHandle.instance->ApplyHead("beards", true, object);
             // }
