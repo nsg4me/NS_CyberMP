@@ -29,32 +29,17 @@ export default function ModDownloadPanel (props: Props) {
   const [isGameStarted, setIsGameStarted] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const createSymlink = async (gamePath: string) => {
-    try {
-      const result = await window.electronAPI.createModSymlink(gamePath)
-      console.log(result)
-    } catch (err: any) {
-      throw new Error(`Failed to create symlink: ${err.message}`)
-    }
-  }
-
   const launchGame = async () => {
     if (serverData == null) return
 
     setIsGameStarted(true)
     setError(null)
 
-    const params = ['--online', '--ip=' + serverData._ip, '--port=' + serverData._port]
-
     try {
-      const gamePath = await window.electronAPI.getGamePath()
-
-      await createSymlink(gamePath)
-
-      await window.electronAPI.executeExe(gamePath, params, './', () => {
-        setIsGameStarted(false)
-        onClose()
-      })
+      // Through Steam (overlay, invites, Proton) with the address in the session file the mod reads.
+      await window.electronAPI.launchGame({ ip: serverData._ip, port: Number(serverData._port) })
+      setIsGameStarted(false)
+      onClose()
     } catch (err: any) {
       console.error('Error launching game:', err)
       setError(err.message || 'An error occurred while launching the game.')

@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start:electron": "cross-env ELECTRON_DEV=1 ow-electron .",
-    "build:electron": "ow-electron-builder --publish=never"
+    "start:electron": "cross-env ELECTRON_DEV=1 electron .",
+    "build:electron": "electron-builder --publish=never"
   },
   "author": {
     "name": "Tilted Phoques SRL"
@@ -26,18 +26,27 @@
     "files": [
       "./dist/**/*",
       "./app.js",
+      "./host.js",
+      "./upnp.js",
       "./preload.mjs"
     ],
     "extraResources": [
       "./preload.mjs"
-    ]
+    ],
+    "win": {
+      "target": "dir"
+    },
+    "linux": {
+      "target": "dir",
+      "category": "Game"
+    }
   },
   "private": true,
   "devDependencies": {
-    "@overwolf/ow-electron": "^31.7.3",
-    "@overwolf/ow-electron-builder": "^25.0.6",
     "electron-devtools-installer": "^3.2.0",
-    "react-devtools": "^6.0.1"
+    "react-devtools": "^6.0.1",
+    "electron": "^31.7.7",
+    "electron-builder": "^25.1.8"
   },
   "dependencies": {
     "decompress": "^4.2.1",

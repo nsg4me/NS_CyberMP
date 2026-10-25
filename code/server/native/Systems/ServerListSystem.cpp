@@ -25,6 +25,10 @@ ServerListSystem::ServerListSystem(gsl::not_null<World*> apWorld)
 
 void ServerListSystem::Tick() noexcept
 {
+    // Private servers (the launcher's "Host game") are only reached through invites: never list them publicly.
+    if (!GServer->GetConfig()->Public)
+        return;
+
     if (m_nextAnnounce < std::chrono::steady_clock::now())
     {
         Announce();

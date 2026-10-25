@@ -30,5 +30,7 @@ target("Server.Native")
         "microsoft-gsl")
 
     after_install(function (target)
-        os.cp(path.join(target:installdir("bin"), "Server.Native.dll"), path.join(target:installdir("launcher"), "server", "Server.Native.dll"))
+        -- Server.Native.dll on Windows, libServer.Native.so on Linux
+        local name = path.filename(target:targetfile())
+        os.cp(target:targetfile(), path.join(target:installdir("launcher"), "server", name))
     end)

@@ -7,6 +7,7 @@
 #include "Rendering/ImGuiService.h"
 #include "Debugging/DebugService.h"
 #include "Threading/ThreadService.h"
+#include "Steam/SteamService.h"
 
 #include "Support/MinHook/MinHookProvider.hpp"
 #include "Support/RedLib/RedLibProvider.hpp"
@@ -34,6 +35,7 @@ Application::Application(RED4ext::v1::PluginHandle aPlugin, const RED4ext::v1::S
     Register<DebugService>();
     Register<ImGuiService>();
     Register<RpcService>(aPlugin, aSdk);
+    Register<SteamService>();
 }
 
 void Application::OnStarted()

@@ -95,6 +95,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // })
   },
   createModSymlink: (gamePath) => ipcRenderer.invoke('create-mod-symlink', gamePath),
+  // Hosting / Steam
+  hostStart: (options) => ipcRenderer.invoke('host-start', options),
+  hostStop: () => ipcRenderer.invoke('host-stop'),
+  hostStatus: () => ipcRenderer.invoke('host-status'),
+  onHostStatus: (callback) => {
+    const listener = (event, status) => callback(status)
+    ipcRenderer.on('host-status', listener)
+    return () => ipcRenderer.removeListener('host-status', listener)
+  },
+  launchGame: (session) => ipcRenderer.invoke('launch-game', session),
+  platform: process.platform,
+  homeDir: process.env.HOME || process.env.USERPROFILE || '',
   checkModList: async (list) => {
     const out = new Map()
     for (const mod of list) {

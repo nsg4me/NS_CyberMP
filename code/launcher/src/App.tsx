@@ -1,4 +1,5 @@
 import ServerList from './components/servers/ServerList.tsx'
+import HostPanel from './components/HostPanel.tsx'
 import { Alert, Box, Button, createTheme, CssBaseline, Snackbar, ThemeProvider } from '@mui/material'
 import WindowFrame from './components/WindowFrame.tsx'
 import { useEffect, useState } from 'react'
@@ -74,7 +75,14 @@ export default function App () {
       const knownPaths: string[] = [
         'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Cyberpunk 2077\\bin\\x64\\Cyberpunk2077.exe',
         'C:\\Program Files (x86)\\GOG Galaxy\\Games\\Cyberpunk 2077\\bin\\x64\\Cyberpunk2077.exe',
-        'C:\\Program Files\\Epic Games\\Cyberpunk 2077\\bin\\x64\\Cyberpunk2077.exe'
+        'C:\\Program Files\\Epic Games\\Cyberpunk 2077\\bin\\x64\\Cyberpunk2077.exe',
+        // Linux (Steam / Proton)
+        ...(window.electronAPI.homeDir
+          ? [
+              `${window.electronAPI.homeDir}/.local/share/Steam/steamapps/common/Cyberpunk 2077/bin/x64/Cyberpunk2077.exe`,
+              `${window.electronAPI.homeDir}/.steam/steam/steamapps/common/Cyberpunk 2077/bin/x64/Cyberpunk2077.exe`
+            ]
+          : [])
       ]
 
       gamePath = knownPaths.find((path) => window.electronAPI.pathExists(path))
@@ -102,6 +110,8 @@ export default function App () {
             Select game executable
           </Button>
         </Box>
+
+        <HostPanel/>
 
         <Box sx={{ width: '100%', overflow: 'auto', flex: 1 }}>
           <ServerList/>
