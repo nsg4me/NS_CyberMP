@@ -201,7 +201,7 @@ jobs:
           pnpm install
           pnpm exec electron-builder --linux dir --publish=never
           # The launcher shows a blank window if its page is missing from the app package
-          npx --yes @electron/asar list out/linux-unpacked/resources/app.asar > asar.txt
+          pnpm dlx @electron/asar@3.2.17 list out/linux-unpacked/resources/app.asar > asar.txt
           grep -qx '/dist/index.html' asar.txt
           grep -q '^/dist/assets/index-.*\.js$' asar.txt
 
