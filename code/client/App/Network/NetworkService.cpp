@@ -46,7 +46,7 @@ void NetworkService::OnConnected()
         username = "Player";
 
     request.set_token("");
-    request.set_username(username);
+    request.set_username(username.c_str());
     request.set_client_protocol(client::kIdentifier);
     request.set_server_protocol(server::kIdentifier);
 

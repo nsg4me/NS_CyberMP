@@ -6,11 +6,13 @@ invites. Works on Windows and on Linux (game through Steam/Proton).
 ## What happens when you press "Host game"
 
 1. The launcher writes `server/config/server.json` (private: never listed publicly) and starts the bundled server.
-2. It asks your router to open **UDP 11778** using UPnP and works out your public address. If UPnP is off, it tells
-   you to forward that one port to your PC yourself.
+2. It asks your router to open **UDP 11778** using UPnP and works out your public address. This is only a fallback
+   for friends joining by address: Steam invites go through the Steam relay and need no open port.
 3. It starts Cyberpunk through Steam (needed for the overlay and invites, and the only way under Proton) and leaves
    the connection details in `mod/cpmp-session.json`, which the mod reads once at startup.
-4. In game, the mod sets your Steam "Join Game" address to your public address.
+4. In game, the mod accepts Steam friends over the Steam relay network and passes their traffic to your local server,
+   and sets your Steam "Join Game" info so invites point at you (by SteamID, with the public address as a fallback).
+5. Everyone connects automatically once their save has loaded (the "hold /" key still works).
 
 Stopping hosting, or closing the launcher, stops the server and closes the router port.
 
@@ -38,11 +40,21 @@ Everyone needs the same launcher version (the mod is installed by the launcher).
   `std::mutex` lock ("No access to memory location" / "RED4ext could not be loaded"). Under Proton, install it into
   the game's prefix: `protontricks-launch --appid 1091500 ~/Downloads/vc_redist.x64.exe`.
 
+## How the Steam relay works
+
+Your game and the server still talk their normal UDP protocol. The mod tunnels it through Steam's networking
+(ISteamNetworkingMessages from the game's own Steam API), addressed by SteamID:
+
+    friend's game -> 127.0.0.1 (local tunnel) => Steam relay => your game -> 127.0.0.1:11778 (server)
+
+No ports are opened, it works behind CGNAT, and nobody sees anyone's IP address. Only people on your **Steam friends
+list** are accepted.
+
 ## When friends cannot connect
 
-- The launcher log says whether the router opened the port. If not, forward **UDP 11778** to your PC.
-- "Your router's internet address is itself private" means a second router or your ISP's CGNAT: forward the port on
-  the outer router too, or ask the ISP for a public IP. A VPN (e.g. WireGuard) also works: friends on
-  the VPN join at your VPN address.
-- The server has no password support (the protocol never had one); it stays private because it is not listed and
-  only people you invite get the address.
+- Check `red4ext/plugins/zzzCyberpunkMP/CyberpunkMP.log` on both sides for `[Relay]` lines: "Steam relay network:
+  ready", "accepted session from ...", "connected through Steam".
+- "refused session ... not on your Steam friends list": add each other as Steam friends.
+- Friends joining by address (no Steam): forward **UDP 11778** to your PC; behind CGNAT that will not work.
+- The server has no password support (the protocol never had one); it is private because it is not listed and the
+  relay only accepts your Steam friends.

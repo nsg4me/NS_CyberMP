@@ -4,6 +4,7 @@
 #include "App/Network/NetworkService.h"
 #include "App/Threading/ThreadService.h"
 #include "App/World/NetworkWorldSystem.h"
+#include "App/Steam/SteamRelay.h"
 
 // The game ships steam_api64.dll and initializes Steamworks itself; we only borrow its exports at runtime, so there is
 // no link-time dependency and non-Steam copies (GOG, Epic) simply have no Steam features.
@@ -97,14 +98,24 @@ struct JoinRequestedCallback final : CCallbackBase
 std::string ConnectString()
 {
     const auto& settings = Settings::Get();
-    const std::string address = settings.publicAddress.c_str();
-    const auto colon = address.rfind(':');
-    if (colon == std::string::npos)
-        return {};
 
     // --launcher-skip lets a friend's game skip REDprelauncher when Steam starts it from an invite, so the remaining
-    // flags reach the game.
-    return fmt::format("--launcher-skip --online --ip={} --port={}", address.substr(0, colon), address.substr(colon + 1));
+    // flags reach the game. --steam-host routes the friend through the Steam relay (no port forwarding); the public
+    // address, when known, is a fallback for friends whose Steam networking is unavailable.
+    std::string connect = "--launcher-skip --online";
+
+    const auto& relay = App::SteamRelay::Get();
+    if (relay.IsAvailable())
+        connect += fmt::format(" --steam-host={}", relay.GetLocalSteamId());
+
+    const std::string address = settings.publicAddress.c_str();
+    const auto colon = address.rfind(':');
+    if (colon != std::string::npos)
+        connect += fmt::format(" --ip={} --port={}", address.substr(0, colon), address.substr(colon + 1));
+    else if (!relay.IsAvailable())
+        return {};
+
+    return connect;
 }
 } // namespace
 
@@ -208,10 +219,13 @@ void SteamService::UpdatePresence()
     if (!settings.host || m_presenceSet)
         return;
 
+    // Steam relay first: friends then need no port forwarding on this side.
+    const bool relay = App::SteamRelay::Get().StartHost(settings.port);
+
     const auto connect = ConnectString();
     if (connect.empty())
     {
-        spdlog::warn("[Steam] hosting without a public address: friends cannot join through Steam");
+        spdlog::warn("[Steam] hosting without Steam networking or a public address: friends cannot join through Steam");
         m_presenceSet = true;
         return;
     }
@@ -219,7 +233,10 @@ void SteamService::UpdatePresence()
     s_steam.setRichPresence(s_steam.friends, "connect", connect.c_str());
     s_steam.setRichPresence(s_steam.friends, "status", "Hosting CyberpunkMP");
     m_presenceSet = true;
-    spdlog::info("[Steam] friends can join at {}", settings.publicAddress.c_str());
+    spdlog::info("[Steam] friends can join through {}{}", relay ? "the Steam relay" : "",
+                 settings.publicAddress.empty() ? std::string()
+                                                : fmt::format("{}{}", relay ? " or directly at " : "",
+                                                              settings.publicAddress.c_str()));
 }
 
 bool SteamService::OpenInviteDialog()
@@ -271,6 +288,8 @@ void SteamService::OnJoinRequested(uint64_t aFriendSteamId, const char* acConnec
 
 void SteamService::OnShutdown()
 {
+    SteamRelay::Get().Stop();
+
     if (m_attached)
     {
         if (s_steam.unregisterCallback && s_joinCallback.service)

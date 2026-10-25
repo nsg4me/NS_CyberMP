@@ -3,6 +3,7 @@
 #include <App/Settings.h>
 
 #include "App/Network/NetworkService.h"
+#include "App/Steam/SteamRelay.h"
 #include "RED4ext/Scripting/Natives/Generated/game/Puppet.hpp"
 #include "RED4ext/Scripting/Natives/Generated/vehicle/BaseObject.hpp"
 #include "RED4ext/Scripting/Natives/gameIEntityStubSystem.hpp"
@@ -408,7 +409,18 @@ void NetworkWorldSystem::OnInitialize(const RED4ext::JobHandle& aJob)
 
 void NetworkWorldSystem::Connect()
 {
-    auto address = fmt::format("{}:{}", Settings::Get().ip, Settings::Get().port);
+    const auto& settings = Settings::Get();
+    auto address = fmt::format("{}:{}", settings.ip, settings.port);
+
+    // Invited through Steam: reach the host over the Steam relay via a local tunnel port.
+    if (settings.steamHost)
+    {
+        if (const auto port = App::SteamRelay::Get().StartClient(settings.steamHost))
+            address = fmt::format("127.0.0.1:{}", port);
+        else
+            spdlog::warn("[Relay] Steam relay unavailable, connecting directly to {}", address);
+    }
+
     Core::Container::Get<NetworkService>()->Connect(address);
 }
 

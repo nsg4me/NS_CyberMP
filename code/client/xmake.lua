@@ -28,6 +28,7 @@ target("Client")
         "gdi32",
         "SetupAPI",
         "Powrprof",
+        "ws2_32",
         "Cfgmgr32",
         "Propsys",
         "delayimp")

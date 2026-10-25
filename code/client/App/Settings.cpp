@@ -60,9 +60,11 @@ void LoadSessionFile(Settings& aSettings, bool aHasCommandLineAddress)
 
 bool Settings::ApplyConnectString(const std::string& acConnect)
 {
-    // Same flags the launcher passes: --online --ip=<address> --port=<port>
+    // Same flags the launcher passes: --online --ip=<address> --port=<port>, plus --steam-host=<SteamID> from a host
+    // that accepts friends through the Steam relay (preferred: no port forwarding).
     std::string ip;
     uint16_t port = 0;
+    uint64_t steamHost = 0;
 
     std::istringstream stream(acConnect);
     std::string token;
@@ -72,13 +74,20 @@ bool Settings::ApplyConnectString(const std::string& acConnect)
             ip = token.substr(5);
         else if (token.rfind("--port=", 0) == 0)
             port = static_cast<uint16_t>(std::strtoul(token.c_str() + 7, nullptr, 10));
+        else if (token.rfind("--steam-host=", 0) == 0)
+            steamHost = std::strtoull(token.c_str() + 13, nullptr, 10);
     }
 
-    if (ip.empty() || port == 0)
+    const bool hasAddress = !ip.empty() && port != 0;
+    if (!hasAddress && steamHost == 0)
         return false;
 
-    Get().ip = ip.c_str();
-    Get().port = port;
+    if (hasAddress)
+    {
+        Get().ip = ip.c_str();
+        Get().port = port;
+    }
+    Get().steamHost = steamHost;
     return true;
 }
 
@@ -103,6 +112,15 @@ void Settings::Load()
     {
         if (port->Size() > 0)
             settings.port = std::strtoul((*port)[0].c_str(), nullptr, 10) & 0xFFFF;
+    }
+
+    if (const auto steamHost = launchParameters.Get("-steam-host"); steamHost)
+    {
+        if (steamHost->Size() > 0)
+        {
+            settings.steamHost = std::strtoull((*steamHost)[0].c_str(), nullptr, 10);
+            hasCommandLineAddress = hasCommandLineAddress || settings.steamHost != 0;
+        }
     }
 
     if (const auto mods = launchParameters.Get("-mod"); mods)

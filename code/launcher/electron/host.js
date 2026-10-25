@@ -182,12 +182,12 @@ async function openToInternet (port) {
   } catch {}
 
   if (externalIp && upnp.isPrivateAddress(externalIp)) {
-    log(`Your router's internet address (${externalIp}) is itself private: you are behind a second router or your ISP's CGNAT, so friends probably cannot reach you without port forwarding on the outer router or a VPN.`)
+    log(`Your router's internet address (${externalIp}) is itself private (second router or CGNAT). Steam invites still work; direct-address joins will not.`)
   }
 
   const publicIp = webIp || (externalIp && !upnp.isPrivateAddress(externalIp) ? externalIp : null)
   if (!mapping) {
-    log(`If friends cannot connect, forward UDP ${port} on your router to this PC.`)
+    log(`No router port opened. Steam invites do not need one (they go through the Steam relay); forward UDP ${port} only for friends joining by address.`)
   }
   return publicIp
 }
@@ -236,8 +236,8 @@ export async function startHosting ({ name, maxPlayers, gamePath, adminPassword 
     setStatus({ state: 'running', publicAddress })
     log(`Server admin page: http://localhost:11779 (user admin, password ${adminPassword})`)
     log(publicAddress
-      ? `Friends join at ${publicAddress} (sent automatically with Steam invites)`
-      : 'Could not work out your public address: Steam invites will not carry an address.')
+      ? `Friends join through Steam invites (Steam relay, no port forwarding). Direct address for non-Steam friends: ${publicAddress}`
+      : 'Friends join through Steam invites (Steam relay, no port forwarding).')
 
     if (gamePath) {
       const how = await launchGame(gamePath, { host: true, ip: '127.0.0.1', port, publicAddress })
