@@ -19,9 +19,15 @@ add_requires(
     "zlib",
     "nlohmann_json",
     "flecs v4.0.3",
-    "protobuf-cpp",
+    "protobuf-cpp 29.3",
     "entt",
     "microsoft-gsl")
+
+-- Pin protobuf and abseil for every package that pulls them in: gamenetworkingsockets asks for any abseil while
+-- protobuf-cpp caps it, which current xmake-repo can no longer resolve on its own. NetPack (the protocol code
+-- generator) builds against protobuf 29.3.
+add_requireconfs("**.protobuf-cpp", {override = true, version = "29.3"})
+add_requireconfs("**.abseil", {override = true, version = "20250127.0"})
 
 if is_plat("windows") then
     set_arch("x64")
