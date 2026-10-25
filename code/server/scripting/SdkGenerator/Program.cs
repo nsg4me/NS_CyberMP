@@ -35,6 +35,9 @@ internal class CyberpunkSdk : ILibrary
         var parserOptions = driver.ParserOptions;
         parserOptions.AddDefines("WIN32");
         parserOptions.AddDefines("CPPSHARP_GENERATOR");
+        // CppSharp bundles an older Clang than current MSVC STL headers accept (STL1000: expects Clang 19+).
+        // We only parse declarations, so let the STL skip that version check.
+        parserOptions.AddDefines("_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH");
 
         var module = options.AddModule(Module);
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
