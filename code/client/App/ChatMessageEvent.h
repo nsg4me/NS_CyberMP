@@ -6,6 +6,10 @@
 
 struct ChatMessageUIEvent : RED4ext::red::Event
 {
+    // Own RTTI names, otherwise it inherits redEvent's and gets registered over the game's Event type.
+    static constexpr const char* NAME = "ChatMessageUIEvent";
+    static constexpr const char* ALIAS = "ChatMessageUIEvent";
+
     RED4ext::CString author;
     RED4ext::CString message;
 

@@ -12,6 +12,12 @@
 
 struct NetworkWorldSystem : RED4ext::IGameSystem, Core::HookingAgent, flecs::world
 {
+    // Own RTTI names. Without them the class inherits gameIGameSystem's NAME/ALIAS from the SDK, and the Red layer
+    // registers it under "gameIGameSystem", replacing the game's IGameSystem type (and the GameInstance getter
+    // becomes GetGameIGameSystem instead of GetNetworkWorldSystem).
+    static constexpr const char* NAME = "NetworkWorldSystem";
+    static constexpr const char* ALIAS = "CyberpunkMP.World.NetworkWorldSystem";
+
     RTTI_IMPL_TYPEINFO(NetworkWorldSystem);
     RTTI_IMPL_ALLOCATOR();
 
