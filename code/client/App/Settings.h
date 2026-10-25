@@ -23,6 +23,8 @@ struct Settings
     Vector<fs::path> mods = {};
     bool enabled = false;
     bool RpcOnly = false;
+    // Developer "Test" menu bar (ImGui) at the top of the screen; off unless the game is started with --cpmp-debug.
+    bool debugMenu = false;
     fs::path RpcPath{};
 
     // Set by the launcher's "Host game" (cpmp-session.json): this player runs the server, and friends reach it at

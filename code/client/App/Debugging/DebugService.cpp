@@ -1,6 +1,7 @@
 
 #include "DebugService.h"
 #include <App/Network/NetworkService.h>
+#include "App/Settings.h"
 
 namespace App
 {
@@ -18,6 +19,9 @@ namespace App
 
     void DebugService::Draw()
     {
+        if (!Settings::Get().debugMenu)
+            return;
+
         if (ImGui::BeginMainMenuBar())
         {
             if (ImGui::BeginMenu("Test"))

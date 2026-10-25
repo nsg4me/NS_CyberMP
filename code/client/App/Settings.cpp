@@ -110,6 +110,11 @@ void Settings::Load()
             settings.mods.push_back(mod.c_str());
     }
 
+    if (launchParameters.Contains("-cpmp-debug"))
+    {
+        settings.debugMenu = true;
+    }
+
     if (launchParameters.Contains("-rpc"))
     {
         settings.RpcOnly = true;
