@@ -102,7 +102,9 @@ internal class Program
         }
         catch(Exception e)
         {
-            Console.WriteLine(e);
+            // Fail loudly: a swallowed exception here only shows up later as missing CyberpunkSdk.Internal types.
+            Console.Error.WriteLine(e);
+            Environment.Exit(1);
         }
     }
 }

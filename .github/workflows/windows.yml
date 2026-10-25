@@ -34,8 +34,9 @@ jobs:
           git submodule sync --recursive
           git submodule update --init --force --recursive --depth=1
 
-      - name: 'Cache xmake dependencies'
-        uses: actions/cache@v4
+      # Restore/save split so installed packages are kept even when a later step fails (they take ~10 min to build)
+      - name: 'Restore xmake dependencies'
+        uses: actions/cache/restore@v4
         with:
           path: ~/AppData/Local/.xmake/packages
           key: ${{ runner.os }}-xmake-packages-${{ hashFiles('**/xmake.lua') }}
@@ -62,6 +63,13 @@ jobs:
 
       - name: 'Configure xmake and install dependencies'
         run: xmake config --arch=${{ matrix.arch }} --mode=${{ matrix.mode }} --vs_sdkver=10.0.19041.0 --yes
+
+      - name: 'Save xmake dependencies'
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/AppData/Local/.xmake/packages
+          key: ${{ runner.os }}-xmake-packages-${{ hashFiles('**/xmake.lua') }}
 
       # Build the game
       - name: 'Build with xmake'
