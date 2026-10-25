@@ -57,7 +57,12 @@ target("Server.Scripting")
             progress.show(opt.progress, "${color.build.target}build codegen")
             os.run("dotnet build " .. sdk_gen_proj)
             progress.show(opt.progress, "${color.build.target}codegen sdk")
-            os.run("dotnet run --project " .. sdk_gen_proj .. " -- " .. files)
+            -- exec (not run) so the generator's own output is visible in the build log
+            os.exec("dotnet run --project " .. sdk_gen_proj .. " -- " .. files)
+            local generated = path.join(script, "CyberpunkSdk", "CyberpunkSdk.Internal.cs")
+            if not os.isfile(generated) then
+                raise("SdkGenerator did not produce " .. generated)
+            end
             progress.show(opt.progress, "${color.build.target}build sdk")
             os.run("dotnet publish " .. sdk_proj .. " -o " .. sdk_output)
 
