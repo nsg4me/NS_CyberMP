@@ -114,9 +114,17 @@ bool ValidateType(Set<RED4ext::CName>& knownTypes, Game::ScriptType* type, Game:
     return true;
 }
 
+// ScriptFunction's flag field moved in 2.5 (the layout was shifted, not re-verified), so it reads as "not native".
+// Ask the definition itself (virtual, layout-independent), and accept functions of native classes: a ServerRpc
+// subclass is a list of RPC declarations, which are always native.
+static bool IsNativeRpcFunction(Game::ScriptClass* klass, Game::ScriptFunction* func)
+{
+    return func->IsNative() || klass->flags.isNative;
+}
+
 bool ValidateFunction(Game::ScriptClass* klass, Game::ScriptFunction* func, Game::ScriptReport* apReporter)
 {
-    if (!func->flags.isNative)
+    if (!IsNativeRpcFunction(klass, func))
         return false;
 
     Set<RED4ext::CName> knownTypes;
@@ -195,13 +203,33 @@ bool HookScriptValidator_Validate(void* apThis, Game::ScriptBundle* apBundler, G
 
             if (!ValidateFunction(klass, func, apReporter))
             {
-                spdlog::warn("RPC {}.{} skipped (native={})", klass->name.ToString(), func->name.ToString(),
-                             static_cast<bool>(func->flags.isNative));
+                spdlog::warn("RPC {}.{} skipped (definition native={}, class native={}, params={})",
+                             klass->name.ToString(), func->name.ToString(), func->IsNative(),
+                             static_cast<bool>(klass->flags.isNative), func->params.Size());
+                continue;
+            }
+
+            // Guard against a wrong ScriptFunction layout: a garbage parameter list would crash further down.
+            if (func->params.Size() > 32)
+            {
+                spdlog::error("RPC {}.{} has {} parameters: script layout mismatch, skipped", klass->name.ToString(),
+                              func->name.ToString(), func->params.Size());
                 continue;
             }
 
             RpcGenerator::CreateFunction(pDesc, klass, func);
             ++added;
+
+            std::string params;
+            for (const auto param : func->params)
+            {
+                if (!params.empty())
+                    params += ", ";
+                params += param->name.ToString();
+                params += ": ";
+                params += param->type ? param->type->name.ToString() : "?";
+            }
+            spdlog::info("RPC {}.{}({}) generated", klass->name.ToString(), func->name.ToString(), params);
         }
 
         if (created)
