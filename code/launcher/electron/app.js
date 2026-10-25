@@ -60,7 +60,8 @@ const createWindow = () => {
     win.loadURL('http://localhost:5173')
     win.webContents.openDevTools()
   } else {
-    win.loadFile('./dist/index.html')
+    // Packed into app.asar next to this file (a path relative to the working directory breaks when launched elsewhere)
+    win.loadFile(path.join(__dirname, 'dist', 'index.html'))
   }
 
   win.on('ready-to-show', () => {

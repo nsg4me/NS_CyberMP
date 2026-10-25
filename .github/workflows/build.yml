@@ -200,6 +200,10 @@ jobs:
           cd electron
           pnpm install
           pnpm exec electron-builder --linux dir --publish=never
+          # The launcher shows a blank window if its page is missing from the app package
+          npx --yes @electron/asar list out/linux-unpacked/resources/app.asar > asar.txt
+          grep -qx '/dist/index.html' asar.txt
+          grep -q '^/dist/assets/index-.*\.js$' asar.txt
 
       - uses: actions/download-artifact@v4
         with:

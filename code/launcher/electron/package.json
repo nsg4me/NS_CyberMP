@@ -19,19 +19,16 @@
     "directories": {
       "output": "out"
     },
-    "extraFiles": [
-      "./dist/**",
-      "./preload.mjs"
-    ],
     "files": [
-      "./dist/**/*",
-      "./app.js",
-      "./host.js",
-      "./upnp.js",
-      "./preload.mjs"
+      "dist/**/*",
+      "app.js",
+      "host.js",
+      "upnp.js",
+      "preload.mjs",
+      "package.json"
     ],
     "extraResources": [
-      "./preload.mjs"
+      "preload.mjs"
     ],
     "win": {
       "target": "dir"
