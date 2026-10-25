@@ -33,6 +33,9 @@ struct Settings
     String publicAddress{};
     // Joining through a Steam invite: start in multiplayer mode and wait for the invite instead of a fixed address.
     bool waitForInvite = false;
+    // Connect as soon as the player is in the world (hosting, joining an address, or after accepting an invite),
+    // instead of waiting for the "hold /" key.
+    bool autoConnect = false;
 
     // Address to connect to, from a Steam join request ("--online --ip=... --port=..." connect string).
     // Returns false when the string has no usable address.

@@ -1,4 +1,5 @@
 #include "NetworkService.h"
+#include "App/Steam/SteamService.h"
 
 #include "App/World/NetworkWorldSystem.h"
 #include "Game/Utils.h"
@@ -39,8 +40,13 @@ void NetworkService::OnConnected()
     spdlog::info("Connected to server.");
 
     client::AuthenticationRequest request;
-    request.set_token("test");
-    request.set_username("testuser");
+    // Steam name when available (the server shows it in chat and the player list); the server has no auth.
+    std::string username = Core::Container::Get<App::SteamService>()->GetPersonaName();
+    if (username.empty())
+        username = "Player";
+
+    request.set_token("");
+    request.set_username(username);
     request.set_client_protocol(client::kIdentifier);
     request.set_server_protocol(server::kIdentifier);
 

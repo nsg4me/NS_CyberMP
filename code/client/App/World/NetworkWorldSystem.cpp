@@ -172,6 +172,7 @@ void NetworkWorldSystem::OnAfterWorldDetach()
     }
     spdlog::info("[NetworkWorldSystem] OnAfterWorldDetach");
     m_ready = false;
+    m_playerReady = false;
 
     m_interpolationSystem->OnAfterWorldDetach();
     m_chatSystem->OnAfterWorldDetach();
@@ -409,6 +410,12 @@ void NetworkWorldSystem::Connect()
 {
     auto address = fmt::format("{}:{}", Settings::Get().ip, Settings::Get().port);
     Core::Container::Get<NetworkService>()->Connect(address);
+}
+
+bool NetworkWorldSystem::ShouldAutoConnect()
+{
+    m_playerReady = true;
+    return Settings::Get().autoConnect && !Core::Container::Get<NetworkService>()->IsConnected();
 }
 
 void NetworkWorldSystem::Disconnect()

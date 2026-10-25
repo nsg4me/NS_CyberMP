@@ -6,6 +6,7 @@ import CyberpunkMP.*
 public native class NetworkWorldSystem extends IGameSystem {
     public native func Connect() -> Void;
     public native func Disconnect() -> Void;
+    public native func ShouldAutoConnect() -> Bool;
     public native func GetEntityIdByServerId(serverId: Uint64) -> EntityID;
     public native func GetAppearanceSystem() -> ref<AppearanceSystem>;
     public native func GetChatSystem() -> ref<ChatSystem>;

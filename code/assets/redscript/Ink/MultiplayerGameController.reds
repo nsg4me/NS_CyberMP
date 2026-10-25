@@ -79,6 +79,11 @@ public class MultiplayerGameController extends inkGameController {
         // this.m_player.RegisterInputListener(this, n"UIDisconnectFromServer");
         this.UpdateInputHints();
 
+        // Hosting / joining through the launcher or a Steam invite: connect without the "hold /" key.
+        if GameInstance.GetNetworkWorldSystem().ShouldAutoConnect() {
+            GameInstance.GetNetworkWorldSystem().Connect();
+        }
+
         this.m_username = "jackhumbert";
         // this.SpawnFromExternal(this.GetWidget(n"hud/wrapper"), r"mods\\cyberpunkmp\\multiplayer_ui.inkwidget", n"phone_device");
         this.AsyncSpawnFromLocal(this.GetWidget(n"hud"), n"phone_device", this, n"OnHotKeySpawn");

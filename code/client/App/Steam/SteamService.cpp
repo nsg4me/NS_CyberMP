@@ -19,6 +19,7 @@ using SetRichPresence_t = bool (*)(ISteamFriends*, const char*, const char*);
 using ClearRichPresence_t = void (*)(ISteamFriends*);
 using ActivateOverlayInviteConnect_t = void (*)(ISteamFriends*, const char*);
 using ActivateOverlay_t = void (*)(ISteamFriends*, const char*);
+using GetPersonaName_t = const char* (*)(ISteamFriends*);
 
 struct CCallbackBase;
 using RegisterCallback_t = void (*)(CCallbackBase*, int);
@@ -32,6 +33,7 @@ struct SteamApi
     ClearRichPresence_t clearRichPresence = nullptr;
     ActivateOverlayInviteConnect_t activateInviteConnect = nullptr;
     ActivateOverlay_t activateOverlay = nullptr;
+    GetPersonaName_t getPersonaName = nullptr;
     RegisterCallback_t registerCallback = nullptr;
     UnregisterCallback_t unregisterCallback = nullptr;
 } s_steam;
@@ -149,6 +151,7 @@ bool SteamService::Attach()
     s_steam.activateInviteConnect =
         Export<ActivateOverlayInviteConnect_t>("SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialogConnectString");
     s_steam.activateOverlay = Export<ActivateOverlay_t>("SteamAPI_ISteamFriends_ActivateGameOverlay");
+    s_steam.getPersonaName = Export<GetPersonaName_t>("SteamAPI_ISteamFriends_GetPersonaName");
     s_steam.registerCallback = Export<RegisterCallback_t>("SteamAPI_RegisterCallback");
     s_steam.unregisterCallback = Export<UnregisterCallback_t>("SteamAPI_UnregisterCallback");
 
@@ -168,6 +171,15 @@ bool SteamService::Attach()
     spdlog::info("[Steam] attached (invite dialog {}, join requests {})",
                  s_steam.activateInviteConnect ? "yes" : "overlay only", s_steam.registerCallback ? "yes" : "no");
     return true;
+}
+
+std::string SteamService::GetPersonaName() const
+{
+    if (!m_attached || !s_steam.friends || !s_steam.getPersonaName)
+        return {};
+
+    const char* name = s_steam.getPersonaName(s_steam.friends);
+    return name ? std::string(name) : std::string();
 }
 
 void SteamService::OnGameUpdate(RED4ext::CGameApplication*)
@@ -246,9 +258,14 @@ void SteamService::OnJoinRequested(uint64_t aFriendSteamId, const char* acConnec
                 return;
             }
 
-            // Connect right away when a world is loaded; otherwise the address is used by the next connect.
-            if (auto* system = Red::GetGameSystem<NetworkWorldSystem>())
+            Settings::Get().autoConnect = true;
+
+            // In the world already: connect now. At the main menu: connect when a save is loaded (the HUD asks).
+            auto* system = Red::GetGameSystem<NetworkWorldSystem>();
+            if (system && system->IsPlayerReady())
                 system->Connect();
+            else
+                spdlog::info("[Steam] will connect once a save is loaded");
         });
 }
 

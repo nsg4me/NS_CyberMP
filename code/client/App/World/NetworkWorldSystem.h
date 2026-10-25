@@ -47,6 +47,10 @@ struct NetworkWorldSystem : RED4ext::IGameSystem, Core::HookingAgent, flecs::wor
 
     void Connect();
     void Disconnect();
+
+    // Called by the HUD once the player is in the world: marks the player ready and says whether to connect now.
+    bool ShouldAutoConnect();
+    bool IsPlayerReady() const { return m_playerReady; }
     void OnConnected();
     void OnDisconnected(Client::EDisconnectReason);
 
@@ -63,6 +67,7 @@ protected:
 
 private:
     bool m_ready{false};
+    bool m_playerReady{false};
     Red::CBaseFunction* m_pCreatePuppet;
     Red::CBaseFunction* m_pDeletePuppet;
     std::optional<uint64_t> m_remotePlayerId;
@@ -79,6 +84,7 @@ RTTI_DEFINE_CLASS(NetworkWorldSystem, {
     RTTI_ALIAS("CyberpunkMP.World.NetworkWorldSystem");
     RTTI_METHOD(Connect);
     RTTI_METHOD(Disconnect);
+    RTTI_METHOD(ShouldAutoConnect);
     RTTI_METHOD(GetEntityIdByServerId);
     RTTI_METHOD(GetAppearanceSystem);
     RTTI_METHOD(GetInterpolationSystem);

@@ -42,6 +42,7 @@ void LoadSessionFile(Settings& aSettings, bool aHasCommandLineAddress)
         aSettings.host = json.value("host", false);
         aSettings.publicAddress = json.value("publicAddress", std::string()).c_str();
         aSettings.waitForInvite = json.value("waitForInvite", false);
+        aSettings.autoConnect = aSettings.host || !aSettings.waitForInvite;
 
         spdlog::info("[Session] {} (server {}:{}, public address '{}')",
                      aSettings.host ? "hosting" : (aSettings.waitForInvite ? "waiting for a Steam invite" : "joining"),
@@ -131,6 +132,10 @@ void Settings::Load()
             settings.RpcPath = path;
         }
     }
+
+    // Started with an address (e.g. by Steam after accepting an invite while the game was closed).
+    if (hasCommandLineAddress && settings.enabled)
+        settings.autoConnect = true;
 
     LoadSessionFile(settings, hasCommandLineAddress);
 }

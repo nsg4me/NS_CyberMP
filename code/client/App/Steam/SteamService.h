@@ -21,6 +21,9 @@ struct SteamService : Core::Feature
     // Opens the Steam overlay's invite dialog for the current session. Returns false when Steam is unavailable.
     bool OpenInviteDialog();
 
+    // The player's Steam name (empty when Steam is unavailable); used as the in-game/chat name.
+    std::string GetPersonaName() const;
+
     // Called from the Steam callback (Steam's thread or the game's callback pump).
     void OnJoinRequested(uint64_t aFriendSteamId, const char* acConnect);
 
