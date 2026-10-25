@@ -1,6 +1,6 @@
 # Port to Cyberpunk 2077 patch 2.5
 
-Status: **compiles (syntax-checked), not yet tested in game.**
+Status: **builds on the Windows CI (MSVC 14.44, xmake 3.0.9); not yet tested in game.**
 
 ## What changed
 
