@@ -144,39 +144,74 @@ bool ValidateFunction(Game::ScriptClass* klass, Game::ScriptFunction* func, Game
 }
 
 bool (*RealScriptValidator_Validate)(void* apThis, Game::ScriptBundle* apBundler, Game::ScriptReport* apReporter);
+
+// Server plugin RPC classes ("native class X extends ServerRpc" in scripts) have no C++ behind them: their native
+// functions are generated here, just before the game checks that every script native exists in RTTI.
+static bool IsServerRpcClass(const Game::ScriptClass* aClass)
+{
+    static const Red::CName s_scriptName("CyberpunkMP.ServerRpc");
+    static const Red::CName s_nativeName("ServerRpc");
+
+    const auto* parent = aClass->parent;
+    if (!parent)
+        return false;
+
+    // The script compiler may record the parent by its script alias or by its native name.
+    return parent->name == s_scriptName || parent->name == s_nativeName ||
+           (parent->rttiClass && parent->rttiClass == Red::GetClass<ServerRpc>());
+}
+
 bool HookScriptValidator_Validate(void* apThis, Game::ScriptBundle* apBundler, Game::ScriptReport* apReporter)
 {
     apReporter->fillErrors = true;
 
-    constexpr Red::CName parentName("CyberpunkMP.ServerRpc");
+    uint32_t rpcClasses = 0;
     for (const auto klass : apBundler->classes)
     {
-        std::string name = klass->name.ToString();
-        if (klass->parent && klass->parent->name == parentName)
+        if (!klass || !IsServerRpcClass(klass))
+            continue;
+
+        ++rpcClasses;
+
+        auto* pClass = Red::GetClass(klass->name);
+        auto* pDesc = reinterpret_cast<RpcGenerator::Descriptor*>(pClass);
+        const bool created = pClass == nullptr;
+
+        if (created)
         {
-            const auto pClass = Red::GetClass(klass->name);
-            if (!pClass)
-            {
-                using Descriptor = Red::ClassDescriptorDefaultImpl<RpcMock>;
-                const auto pDesc = new Descriptor();
-                pDesc->name = klass->name;
-                pDesc->flags.isNative = 1;
-                pDesc->flags.isScriptedClass = 1;
-                pDesc->SetParent<ServerRpc>();
-
-                for (const auto func : klass->functions)
-                {
-                    if (!ValidateFunction(klass, func, apReporter))
-                        continue;
-
-                    RpcGenerator::CreateFunction(pDesc, klass, func);
-                }
-
-                auto* rtti = Red::CRTTISystem::Get();
-                rtti->RegisterType(pDesc);
-            }
+            pDesc = new RpcGenerator::Descriptor();
+            pDesc->name = klass->name;
+            pDesc->flags.isNative = 1;
+            pDesc->flags.isScriptedClass = 1;
+            pDesc->SetParent<ServerRpc>();
         }
+
+        uint32_t added = 0;
+        for (const auto func : klass->functions)
+        {
+            // The validator can run more than once (e.g. a script reload); do not add a function twice.
+            if (pDesc->GetFunction(func->name))
+                continue;
+
+            if (!ValidateFunction(klass, func, apReporter))
+            {
+                spdlog::warn("RPC {}.{} skipped (native={})", klass->name.ToString(), func->name.ToString(),
+                             static_cast<bool>(func->flags.isNative));
+                continue;
+            }
+
+            RpcGenerator::CreateFunction(pDesc, klass, func);
+            ++added;
+        }
+
+        if (created)
+            Red::CRTTISystem::Get()->RegisterType(pDesc);
+
+        spdlog::info("RPC class {} {} ({} script functions, {} generated)", klass->name.ToString(),
+                     created ? "created" : "already existed", klass->functions.Size(), added);
     }
+
+    spdlog::info("Script validation: {} classes, {} server RPC classes", apBundler->classes.Size(), rpcClasses);
 
     return RealScriptValidator_Validate(apThis, apBundler, apReporter);
 }
@@ -228,5 +263,9 @@ void RpcValidator::InternalValidate()
 
 void RpcValidator::Attach()
 {
-    Hook<ScriptValidator_Validate>(&HookScriptValidator_Validate, &RealScriptValidator_Validate);
+    const bool ok = Hook<ScriptValidator_Validate>(&HookScriptValidator_Validate, &RealScriptValidator_Validate);
+    if (ok)
+        spdlog::info("Script validator hook attached");
+    else
+        spdlog::error("Script validator hook could not be attached: server plugin RPCs will be missing");
 }

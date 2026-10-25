@@ -41,6 +41,7 @@ Application::Application(RED4ext::v1::PluginHandle aPlugin, const RED4ext::v1::S
 void Application::OnStarted()
 {
     Core::Application::OnStarted();
+    spdlog::info("NS-CyberMP client started");
 }
 
 void Application::OnStopped()
