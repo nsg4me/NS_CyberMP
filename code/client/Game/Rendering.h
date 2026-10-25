@@ -11,24 +11,23 @@ struct Context
     Context() = delete;
     ~Context() = delete;
 
+    // Layout and instance lookup as in Cyber Engine Tweaks 1.38 (game 2.5). The old lookup decoded an instruction
+    // inside GpuApi::Present, which moved in 2.5 and yielded a null context (crash on the first frame).
     static Context* GetInstance() noexcept
     {
-        static Red::UniversalRelocPtr<uint8_t> s_ptr(2468877568UL);
-        static uintptr_t callAddress = (uintptr_t)(s_ptr.GetAddr() + 0x1F);
-        static const auto offset = *reinterpret_cast<uint32_t*>(callAddress);
-        static const auto fixedAddress = callAddress + offset + 4;
-        return *(Context**)fixedAddress;
+        static Red::UniversalRelocPtr<Context*> s_instance(1239944840UL); // CRenderGlobal instance
+        return *s_instance.GetAddr();
     }
 
-    uint8_t pad0[0xC97F38];
+    uint8_t pad0[0xCEBF48];
     Device devices[0x30]; // Count unknown, it is at least 0x20
-    uint8_t pad[0x13BC4D0 - (0xC97F38 + sizeof(devices))];
-    ID3D12CommandQueue* pDirectQueue; // 0x13BC4D0
+    uint8_t pad[0x14104D0 - (0xCEBF48 + sizeof(devices))];
+    ID3D12CommandQueue* pDirectQueue; // 0x14104D0
 };
 
 static_assert(sizeof(Context::Device) == 0xB0);
-static_assert(offsetof(Context, devices) == 0xC97F38);
-static_assert(offsetof(Context, pDirectQueue) == 0x13BC4D0);
+static_assert(offsetof(Context, devices) == 0xCEBF48);
+static_assert(offsetof(Context, pDirectQueue) == 0x14104D0);
 
 constexpr auto CRenderNode_Present_DoInternal = Core::RawFunc<
     /* hash = */ 2468877568UL,

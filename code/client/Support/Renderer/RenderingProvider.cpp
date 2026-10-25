@@ -60,10 +60,16 @@ void Support::RenderingProvider::OnInitialize()
 void Support::RenderingProvider::Present(int32_t* apDeviceIndex, uint8_t aSomeSync, UINT aSyncInterval)
 {
     const auto* pContext = Game::Rendering::Context::GetInstance();
+    if (!pContext || !apDeviceIndex || *apDeviceIndex < 1 || *apDeviceIndex > 0x30)
+        return; // overlay unavailable this frame; never take the game down over it
+
     auto* pSwapChain = pContext->devices[*apDeviceIndex - 1].pSwapChain;
 
     if (!m_initialized)
     {
+        if (!pSwapChain || !pContext->pDirectQueue)
+            return;
+
         m_pCommandQueue = pContext->pDirectQueue;
         m_pdxgiSwapChain = pSwapChain;
         Initialize();
