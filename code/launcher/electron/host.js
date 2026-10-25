@@ -56,7 +56,24 @@ async function writeServerConfig ({ name, maxPlayers }) {
     config = JSON.parse(await fs.readFile(file, 'utf8'))
   } catch {}
 
+  // Every key the server knows, so older server builds (which reject a config with any key missing) accept it too.
+  const defaults = {
+    Name: 'CyberpunkMP',
+    Description: '',
+    IconUrl: '',
+    MaxPlayer: 4,
+    Tags: '',
+    TickRate: 60,
+    UpdateRate: 10,
+    Public: false,
+    Port: DEFAULT_PORT,
+    Password: '',
+    ApiKey: '',
+    Flecs: { Enabled: true, Port: 27750, IpAddress: '127.0.0.1' }
+  }
+
   config = {
+    ...defaults,
     ...config,
     Name: name || 'CyberpunkMP',
     MaxPlayer: maxPlayers || 4,
@@ -87,9 +104,11 @@ function startServerProcess () {
 
     const child = spawn(cmd, args, { cwd: serverDir(), windowsHide: true })
     let settled = false
+    let produced = false
 
     const onLine = (data) => {
       for (const line of data.toString().split(/\r?\n/).filter(Boolean)) {
+        produced = true
         log(line)
         const started = /Server started on port (\d+)/.exec(line)
         if (started && !settled) {
@@ -108,7 +127,10 @@ function startServerProcess () {
       log(`Server stopped (exit code ${code})`)
       if (!settled) {
         settled = true
-        reject(new Error(`The server exited before starting (code ${code}). ${process.platform === 'linux' ? 'Is the .NET 8 runtime installed?' : ''}`))
+        // No output at all usually means the runtime is missing; otherwise the server's own error is in the log above.
+        reject(new Error(produced
+          ? `The server stopped before starting (exit code ${code}): see its message in the log.`
+          : `The server exited without output (exit code ${code}). Is the .NET 8 runtime installed?`))
       }
       if (server && server.process === child) {
         server = null

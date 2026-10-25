@@ -12,7 +12,7 @@ struct FlecsConfig
     uint16_t GetPort() const { return Port; }
     const char* GetIpAddress() const { return IpAddress.c_str(); }
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(FlecsConfig, Enabled, Port, IpAddress)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(FlecsConfig, Enabled, Port, IpAddress)
 };
 
 struct Config : IConfig
@@ -45,5 +45,5 @@ struct Config : IConfig
     const char* GetPassword() const { return Password.c_str(); }
     const FlecsConfig& GetFlecsConfig() const { return Flecs; }
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Config, Name, Description, IconUrl, MaxPlayer, Tags, TickRate, UpdateRate, Public, Port, Password, ApiKey, Flecs)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Config, Name, Description, IconUrl, MaxPlayer, Tags, TickRate, UpdateRate, Public, Port, Password, ApiKey, Flecs)
 };
