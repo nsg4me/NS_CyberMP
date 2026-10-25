@@ -23,6 +23,7 @@
       "dist/**/*",
       "app.js",
       "host.js",
+      "deps.js",
       "upnp.js",
       "preload.mjs",
       "package.json"

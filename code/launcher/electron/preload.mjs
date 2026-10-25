@@ -105,6 +105,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('host-status', listener)
   },
   launchGame: (session) => ipcRenderer.invoke('launch-game', session),
+  requirementsStatus: () => ipcRenderer.invoke('requirements-status'),
+  requirementsInstall: (options) => ipcRenderer.invoke('requirements-install', options),
+  onRequirementsLog: (callback) => {
+    const listener = (event, line) => callback(line)
+    ipcRenderer.on('requirements-log', listener)
+    return () => ipcRenderer.removeListener('requirements-log', listener)
+  },
   platform: process.platform,
   homeDir: process.env.HOME || process.env.USERPROFILE || '',
   checkModList: async (list) => {

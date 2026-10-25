@@ -6,6 +6,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import electron from 'electron'
 import * as host from './host.js'
+import * as deps from './deps.js'
 
 let win = null
 
@@ -22,6 +23,11 @@ async function installMod (gamePath) {
     if (error.code !== 'ENOENT') {
       throw error
     }
+  }
+
+  // NTFS game drives on Linux: Wine will not load a DLL without the exec bit.
+  if (process.platform === 'linux') {
+    try { await fs.chmod(path.join(sourceDir, 'CyberpunkMP.dll'), 0o755) } catch {}
   }
 
   try {
@@ -112,6 +118,18 @@ electron.app.whenReady().then(async () => {
     return host.startHosting({ ...options, gamePath, adminPassword })
   })
   electron.ipcMain.handle('host-stop', () => host.stopHosting())
+
+  // Required mods (RED4ext, redscript, Codeware, ArchiveXL, TweakXL, Input Loader) and the VC++ runtime
+  electron.ipcMain.handle('requirements-status', () => deps.status(store.get('game_path')))
+  electron.ipcMain.handle('requirements-install', async (event, options) => {
+    const log = (line) => { if (win) win.webContents.send('requirements-log', line) }
+    try {
+      return await deps.install(store.get('game_path'), log, options || {})
+    } catch (err) {
+      log(`Error: ${err.message}`)
+      throw err
+    }
+  })
   electron.ipcMain.handle('launch-game', async (event, session) => {
     const gamePath = store.get('game_path')
     if (!gamePath) throw new Error('Select the game executable first.')

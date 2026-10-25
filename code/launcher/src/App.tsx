@@ -1,5 +1,6 @@
 import ServerList from './components/servers/ServerList.tsx'
 import HostPanel from './components/HostPanel.tsx'
+import RequirementsPanel from './components/RequirementsPanel.tsx'
 import { Alert, Box, Button, createTheme, CssBaseline, Snackbar, ThemeProvider } from '@mui/material'
 import WindowFrame from './components/WindowFrame.tsx'
 import { useEffect, useState } from 'react'
@@ -38,7 +39,7 @@ const darkTheme = createTheme({
 })
 
 export default function App () {
-  const [_selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -110,6 +111,8 @@ export default function App () {
             Select game executable
           </Button>
         </Box>
+
+        <RequirementsPanel gamePath={selectedFilePath ?? undefined}/>
 
         <HostPanel/>
 
