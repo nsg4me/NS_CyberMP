@@ -31,6 +31,19 @@ async function installMod (gamePath) {
 
   await fs.mkdir(pluginsDir, { recursive: true })
 
+  // Other copies of the mod in plugins/ (renamed manual installs) are loaded too and clash with this one.
+  for (const entry of await fs.readdir(pluginsDir, { withFileTypes: true }).catch(() => [])) {
+    if (entry.name === 'zzzCyberpunkMP' || !existsSync(path.join(pluginsDir, entry.name, 'CyberpunkMP.dll'))) continue
+    const stray = path.join(pluginsDir, entry.name)
+    const aside = path.join(path.dirname(pluginsDir), `${entry.name}.disabled-${Date.now()}`)
+    try {
+      await fs.rename(stray, aside)
+      host.note(`Moved a second copy of the mod (${entry.name}) out of the plugins folder, to ${aside}`)
+    } catch (err) {
+      host.note(`Warning: a second copy of the mod is in ${stray}; remove it, or the mod's scripts will not load (${err.code || err.message})`)
+    }
+  }
+
   // Clear what is there: an old link is removed; a real folder (an earlier manual install) is kept aside, not deleted.
   let existing = null
   try { existing = await fs.lstat(targetDir) } catch {}
@@ -40,9 +53,10 @@ async function installMod (gamePath) {
       if (current && path.resolve(current) === path.resolve(sourceDir)) return 'Mod already linked'
       await fs.unlink(targetDir)
     } else if (existing.isDirectory()) {
-      const aside = `${targetDir}.old-${Date.now()}`
+      // Out of plugins/: RED4ext loads every folder in there, and a second copy of the mod breaks script compilation.
+      const aside = path.join(path.dirname(pluginsDir), `zzzCyberpunkMP.old-${Date.now()}`)
       await fs.rename(targetDir, aside)
-      host.note(`Moved an older zzzCyberpunkMP folder aside to ${aside}`)
+      host.note(`Moved an older zzzCyberpunkMP folder out of the plugins folder, to ${aside}`)
     } else {
       await fs.unlink(targetDir)
     }

@@ -40,9 +40,29 @@ export async function collectLogs ({ gamePath, modDir, hostLines, launcherVersio
 
   if (gamePath) {
     const root = path.dirname(path.dirname(path.dirname(gamePath)))
-    for (const file of await newestFiles(path.join(root, 'red4ext', 'logs'), /\.log$/i, 2)) {
-      if (await add(file, `red4ext/${path.basename(file)}`)) included.push(`red4ext/${path.basename(file)}`)
+    // Newest log of each kind: RED4ext itself, each plugin, and redscript's compiler output.
+    const sources = [
+      [path.join(root, 'red4ext', 'logs'), /^red4ext-.*\.log$/i, 'red4ext'],
+      [path.join(root, 'red4ext', 'logs'), /^(?!red4ext-).*\.log$/i, 'red4ext'],
+      [path.join(root, 'r6', 'logs'), /\.log$/i, 'r6']
+    ]
+    for (const [dir, pattern, prefix] of sources) {
+      const seen = new Set()
+      for (const file of await newestFiles(dir, pattern, 20)) {
+        const kind = path.basename(file).replace(/[-_]?\d{4}-\d{2}-\d{2}.*$/, '').replace(/\.log$/i, '').toLowerCase()
+        if (seen.has(kind)) continue
+        seen.add(kind)
+        if (await add(file, `${prefix}/${path.basename(file)}`)) included.push(`${prefix}/${path.basename(file)}`)
+      }
     }
+
+    // Copies of the mod RED4ext would load (a second one breaks script compilation)
+    const plugins = path.join(root, 'red4ext', 'plugins')
+    const copies = []
+    for (const entry of await fs.readdir(plugins, { withFileTypes: true }).catch(() => [])) {
+      if (existsSync(path.join(plugins, entry.name, 'CyberpunkMP.dll'))) copies.push(entry.name)
+    }
+    zip.addFile('mod-copies.txt', Buffer.from(copies.join('\n') || '(none)'))
   }
 
   // Proton's log (only written with PROTON_LOG=1); skip stale ones
