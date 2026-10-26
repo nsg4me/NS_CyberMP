@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_set>
+
 // Multiplayer over Steam's relay network, so nobody needs port forwarding.
 //
 // The game and the server keep talking their normal UDP protocol; this tunnels those datagrams through
