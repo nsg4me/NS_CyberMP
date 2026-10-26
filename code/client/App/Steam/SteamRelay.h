@@ -58,6 +58,8 @@ private:
     uintptr_t m_clientSocket = ~uintptr_t(0);
 
     std::atomic<bool> m_running{false};
+    std::atomic<bool> m_workerDone{true};
+    std::atomic<bool> m_shutdown{false};
     std::thread m_worker;
 };
 } // namespace App

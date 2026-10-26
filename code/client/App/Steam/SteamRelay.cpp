@@ -82,6 +82,44 @@ void Release(SteamNetworkingMessage_t* apMessage)
         apMessage->m_pfnRelease(apMessage);
 }
 
+// Steam calls from the worker thread, guarded: if Steam goes away underneath us (the game shutting Steam down while a
+// call is in flight), the call faults instead of returning - that must not take the game down on exit.
+int SafeReceive(SteamNetworkingMessage_t** apOut, int aMax)
+{
+    __try
+    {
+        return s_api.receive(s_api.messages, kChannel, apOut, aMax);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return -1;
+    }
+}
+
+bool SafeSend(const SteamNetworkingIdentity* apTo, const void* apData, int aSize)
+{
+    __try
+    {
+        s_api.send(s_api.messages, apTo, apData, static_cast<uint32_t>(aSize), kSendFlags, kChannel);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+// The game calls SteamAPI_Shutdown on exit; the relay worker must be stopped before Steam's interfaces disappear.
+using SteamAPIShutdown_t = void (*)();
+SteamAPIShutdown_t s_realSteamShutdown = nullptr;
+
+void HookedSteamShutdown()
+{
+    App::SteamRelay::Get().Stop();
+    if (s_realSteamShutdown)
+        s_realSteamShutdown();
+}
+
 SteamNetworkingIdentity Identity(uint64_t aSteamId)
 {
     SteamNetworkingIdentity identity{};
@@ -208,6 +246,13 @@ bool SteamRelay::Init()
     WSADATA wsa{};
     WSAStartup(MAKEWORD(2, 2), &wsa);
 
+    if (auto* shutdown = GetProcAddress(s_api.module, "SteamAPI_Shutdown"))
+    {
+        if (MH_CreateHook(reinterpret_cast<void*>(shutdown), reinterpret_cast<void*>(&HookedSteamShutdown),
+                          reinterpret_cast<void**>(&s_realSteamShutdown)) == MH_OK)
+            MH_EnableHook(reinterpret_cast<void*>(shutdown));
+    }
+
     if (s_api.utils && s_api.initRelay)
         s_api.initRelay(s_api.utils);
 
@@ -282,17 +327,31 @@ uint16_t SteamRelay::StartClient(uint64_t aHostSteamId)
 
 void SteamRelay::StartWorker()
 {
+    if (m_shutdown)
+        return;
+
     bool expected = false;
     if (!m_running.compare_exchange_strong(expected, true))
         return;
 
-    m_worker = std::thread([this] { Run(); });
+    m_workerDone = false;
+    m_worker = std::thread(
+        [this]
+        {
+            Run();
+            m_workerDone = true;
+        });
     m_worker.detach();
 }
 
 void SteamRelay::Stop()
 {
+    m_shutdown = true;
     m_running = false;
+
+    // Let the worker finish its current pass (it never blocks for more than ~1 ms) before Steam shuts down.
+    for (int i = 0; i < 200 && !m_workerDone; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
 void SteamRelay::OnSessionRequest(const void* apIdentity)
@@ -380,7 +439,13 @@ void SteamRelay::Run()
         }
 
         // Steam -> local UDP
-        const int count = s_api.receive(s_api.messages, kChannel, messages, 64);
+        const int count = SafeReceive(messages, 64);
+        if (count < 0)
+        {
+            spdlog::warn("[Relay] Steam networking went away; relay stopped");
+            m_running = false;
+            break;
+        }
         for (int i = 0; i < count; ++i)
         {
             auto* message = messages[i];
@@ -423,7 +488,7 @@ void SteamRelay::Run()
                 auto& peer = it->second;
                 int received;
                 while ((received = recv(peer.socket, buffer, sizeof(buffer), 0)) > 0)
-                    s_api.send(s_api.messages, &peer.identity, buffer, received, kSendFlags, kChannel);
+                    SafeSend(&peer.identity, buffer, received);
 
                 if (now - peer.lastSeen > std::chrono::minutes(2))
                 {
@@ -448,7 +513,7 @@ void SteamRelay::Run()
             {
                 gameAddress = from;
                 haveGameAddress = true;
-                s_api.send(s_api.messages, &host, buffer, received, kSendFlags, kChannel);
+                SafeSend(&host, buffer, received);
                 fromLen = sizeof(from);
             }
         }
