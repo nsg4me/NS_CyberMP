@@ -81,7 +81,9 @@ export default function App () {
         ...(window.electronAPI.homeDir
           ? [
               `${window.electronAPI.homeDir}/.local/share/Steam/steamapps/common/Cyberpunk 2077/bin/x64/Cyberpunk2077.exe`,
-              `${window.electronAPI.homeDir}/.steam/steam/steamapps/common/Cyberpunk 2077/bin/x64/Cyberpunk2077.exe`
+              `${window.electronAPI.homeDir}/.steam/steam/steamapps/common/Cyberpunk 2077/bin/x64/Cyberpunk2077.exe`,
+              // Flatpak Steam
+              `${window.electronAPI.homeDir}/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Cyberpunk 2077/bin/x64/Cyberpunk2077.exe`
             ]
           : [])
       ]

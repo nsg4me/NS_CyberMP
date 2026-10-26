@@ -145,15 +145,25 @@ async function installVcRedist (log) {
       return true
     }
 
-    const launcher = await which('protontricks-launch')
-    if (!launcher) {
-      log('Visual C++ runtime: protontricks is not installed. Install it (Arch/Garuda: sudo pacman -S protontricks), ' +
-          `then run: protontricks-launch --appid ${STEAM_APP_ID} vc_redist.x64.exe (from ${VC_REDIST_URL})`)
+    // Native protontricks, or the Flatpak one (common on Fedora-based distros).
+    let cmd = await which('protontricks-launch')
+    let prefixArgs = []
+    if (!cmd && await which('flatpak')) {
+      const code = await run('flatpak', ['info', 'com.github.Matoking.protontricks'])
+      if (code === 0) {
+        cmd = 'flatpak'
+        prefixArgs = ['run', `--filesystem=${temp}`, '--command=protontricks-launch', 'com.github.Matoking.protontricks']
+      }
+    }
+    if (!cmd) {
+      log('Visual C++ runtime: protontricks is not installed. Install it (Arch/Garuda: sudo pacman -S protontricks; ' +
+          'Fedora/Nobara: sudo dnf install protontricks, or flatpak install flathub com.github.Matoking.protontricks), ' +
+          'then press Install requirements again.')
       return false
     }
     log('Visual C++ runtime: installing into the game\'s Proton prefix (an installer window may open)...')
     await fs.chmod(exe, 0o755)
-    const code = await run(launcher, ['--appid', String(STEAM_APP_ID), exe, '/install', '/passive', '/norestart'])
+    const code = await run(cmd, [...prefixArgs, '--appid', String(STEAM_APP_ID), exe, '/install', '/passive', '/norestart'])
     if (code !== 0) log(`Visual C++ runtime: installer finished with code ${code}; if the game still says RED4ext could not be loaded, run it again`)
     else log('Visual C++ runtime: installed')
     return code === 0
