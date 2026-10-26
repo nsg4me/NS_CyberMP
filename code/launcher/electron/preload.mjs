@@ -107,6 +107,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   launchGame: (session) => ipcRenderer.invoke('launch-game', session),
   collectLogs: () => ipcRenderer.invoke('logs-collect'),
   launchOptionStatus: () => ipcRenderer.invoke('launch-option-status'),
+  findGame: () => ipcRenderer.invoke('find-game'),
   getBindings: () => ipcRenderer.invoke('bindings-get'),
   getBindingKeys: () => ipcRenderer.invoke('bindings-keys'),
   setBindings: (bindings) => ipcRenderer.invoke('bindings-set', bindings),

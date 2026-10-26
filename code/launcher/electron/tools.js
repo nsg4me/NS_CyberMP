@@ -1,5 +1,6 @@
 // Support tools: a log bundle for troubleshooting, the Linux launch-option check, and key rebinding.
 import { promises as fs, existsSync } from 'fs'
+import { execFile } from 'child_process'
 import os from 'os'
 import path from 'path'
 import AdmZip from 'adm-zip'
@@ -112,6 +113,50 @@ export async function launchOptionStatus () {
   if (values.length === 0) return { checked: false, ok: true }
   const ok = values.some((v) => /WINEDLLOVERRIDES\s*=\s*["']?[^"']*winmm\s*=\s*n/i.test(v.value))
   return { checked: true, ok, values }
+}
+
+// --- Finding the game ---------------------------------------------------------------------------------------------
+
+function windowsSteamPath () {
+  return new Promise((resolve) => {
+    execFile('reg', ['query', 'HKCU\\Software\\Valve\\Steam', '/v', 'SteamPath'], { windowsHide: true }, (err, out) => {
+      if (err) return resolve(null)
+      const match = /SteamPath\s+REG_SZ\s+(.+)/.exec(out)
+      resolve(match ? match[1].trim().replace(/\//g, '\\') : null)
+    })
+  })
+}
+
+// Every Steam library folder (Steam's libraryfolders.vdf), then the one holding Cyberpunk 2077.
+export async function findGame () {
+  const roots = process.platform === 'win32'
+    ? [await windowsSteamPath(), 'C:\\Program Files (x86)\\Steam'].filter(Boolean)
+    : steamRoots()
+
+  const libraries = new Set()
+  for (const root of roots) {
+    libraries.add(root)
+    for (const vdf of [path.join(root, 'steamapps', 'libraryfolders.vdf'), path.join(root, 'config', 'libraryfolders.vdf')]) {
+      let text
+      try { text = await fs.readFile(vdf, 'utf8') } catch { continue }
+      for (const match of text.matchAll(/"path"\s*"((?:[^"\\]|\\.)*)"/g)) libraries.add(match[1].replace(/\\\\/g, '\\'))
+    }
+  }
+
+  for (const library of libraries) {
+    const exe = path.join(library, 'steamapps', 'common', 'Cyberpunk 2077', 'bin', 'x64', 'Cyberpunk2077.exe')
+    if (existsSync(exe)) return exe
+  }
+
+  // GOG / Epic default folders
+  const others = process.platform === 'win32'
+    ? ['C:\\Program Files (x86)\\GOG Galaxy\\Games\\Cyberpunk 2077', 'C:\\Program Files\\Epic Games\\Cyberpunk 2077']
+    : []
+  for (const dir of others) {
+    const exe = path.join(dir, 'bin', 'x64', 'Cyberpunk2077.exe')
+    if (existsSync(exe)) return exe
+  }
+  return null
 }
 
 // --- Key bindings ----------------------------------------------------------------------------------------------------

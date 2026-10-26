@@ -138,7 +138,17 @@ async function installVcRedist (log) {
     await download(VC_REDIST_URL, exe)
 
     if (process.platform === 'win32') {
-      const code = await run(exe, ['/install', '/passive', '/norestart'])
+      // Through Start-Process -Verb RunAs so Windows always shows the administrator (UAC) prompt it needs.
+      log('Visual C++ runtime: installing (accept the administrator prompt)...')
+      const code = await new Promise((resolve, reject) => {
+        execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+          `$p = Start-Process -FilePath '${exe.replace(/'/g, "''")}' -ArgumentList '/install','/passive','/norestart' -Verb RunAs -Wait -PassThru; exit $p.ExitCode`],
+        { windowsHide: true }, (err) => {
+          if (err && typeof err.code !== 'number') reject(err)
+          else resolve(err ? err.code : 0)
+        })
+      })
+      if (code === 1223) throw new Error('the administrator prompt was declined')
       // 0 = installed, 1638 = newer already present, 3010 = needs reboot
       if (![0, 1638, 3010].includes(code)) throw new Error(`installer exit code ${code}`)
       log('Visual C++ runtime: installed')

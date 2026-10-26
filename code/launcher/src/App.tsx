@@ -70,7 +70,7 @@ export default function App () {
 
   useEffect(() => {
     // Load the saved file path from electron-store
-    window.electronAPI.getGamePath().then((gamePath?: string) => {
+    window.electronAPI.getGamePath().then(async (gamePath?: string) => {
       if (gamePath && window.electronAPI.pathExists(gamePath)) {
         setSelectedFilePath(gamePath)
         return
@@ -91,6 +91,8 @@ export default function App () {
       ]
 
       gamePath = knownPaths.find((path) => window.electronAPI.pathExists(path))
+      // Any Steam library (D:\\SteamLibrary, a second drive on Linux, ...), from Steam's own library list
+      if (!gamePath) gamePath = await window.electronAPI.findGame().catch(() => null) ?? undefined
       if (gamePath) {
         window.electronAPI.setGamePath(gamePath)
         setSelectedFilePath(gamePath)

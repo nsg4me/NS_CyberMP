@@ -133,6 +133,7 @@ electron.app.whenReady().then(async () => {
     })
   })
   electron.ipcMain.handle('launch-option-status', () => tools.launchOptionStatus())
+  electron.ipcMain.handle('find-game', () => tools.findGame())
   electron.ipcMain.handle('bindings-get', () => tools.getBindings(host.modDir()))
   electron.ipcMain.handle('bindings-keys', () => tools.KEYS)
   electron.ipcMain.handle('bindings-set', async (event, bindings) => {
