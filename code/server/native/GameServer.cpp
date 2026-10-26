@@ -176,7 +176,12 @@ void GameServer::HandleAuthentication(const PacketEvent<client::AuthenticationRe
         spdlog::error("Failed to send message to {:x}", aRequest.ConnectionId);
 
     // The player was accepted, rpc definitions are ready, we can create the player's handle
-    GetWorld()->get_mut<PlayerManager>()->Create(aRequest.ConnectionId, aRequest.get_username());
+    auto player = GetWorld()->get_mut<PlayerManager>()->Create(aRequest.ConnectionId, aRequest.get_username());
+    if (player)
+    {
+        if (auto* pPlayer = player.get_mut<PlayerComponent>())
+            pPlayer->SteamId = aRequest.get_steam_id();
+    }
 }
 
 ScratchAllocator& GameServer::GetScratch()

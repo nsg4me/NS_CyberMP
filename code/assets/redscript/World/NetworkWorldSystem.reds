@@ -8,6 +8,8 @@ public native class NetworkWorldSystem extends IGameSystem {
     public native func Disconnect() -> Void;
     public native func ShouldAutoConnect() -> Bool;
     public native func SetMainMenuVisible(visible: Bool) -> Void;
+    public native func SetPauseMenuVisible(visible: Bool) -> Void;
+    public native func GetPlayerColor(entityId: EntityID) -> Vector4;
     public native func GetEntityIdByServerId(serverId: Uint64) -> EntityID;
     public native func GetAppearanceSystem() -> ref<AppearanceSystem>;
     public native func GetChatSystem() -> ref<ChatSystem>;

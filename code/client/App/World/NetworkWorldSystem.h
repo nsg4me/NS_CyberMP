@@ -12,6 +12,14 @@
 
 struct NetworkWorldSystem : RED4ext::IGameSystem, Core::HookingAgent, flecs::world
 {
+    // Another player's character, as announced by the server (name and SteamID tie it to a party slot).
+    struct RemotePlayer
+    {
+        uint64_t serverId = 0;
+        std::string name;
+        uint64_t steamId = 0;
+    };
+
     // Own RTTI names. Without them the class inherits gameIGameSystem's NAME/ALIAS from the SDK, and the Red layer
     // registers it under "gameIGameSystem", replacing the game's IGameSystem type (and the GameInstance getter
     // becomes GetGameIGameSystem instead of GetNetworkWorldSystem).
@@ -34,6 +42,11 @@ struct NetworkWorldSystem : RED4ext::IGameSystem, Core::HookingAgent, flecs::wor
     flecs::entity FindEntity(Red::EntityID aId) const;
 
     void SetRemotePlayerId(uint64_t aId) { m_remotePlayerId = aId; }
+
+    std::vector<RemotePlayer> GetRemotePlayers() const;
+    // World position of a remote player's character, if it is spawned.
+    std::optional<Red::Vector4> GetRemotePlayerPosition(uint64_t aServerId) const;
+    std::optional<Red::Vector4> GetLocalPlayerPosition() const;
     std::optional<uint64_t> GetRemotePlayerId() const { return m_remotePlayerId; }
 
     Red::Handle<AppearanceSystem> GetAppearanceSystem() const { return m_appearanceSystem; }
@@ -52,6 +65,10 @@ struct NetworkWorldSystem : RED4ext::IGameSystem, Core::HookingAgent, flecs::wor
     bool ShouldAutoConnect();
     // Title screen open (from its script): shows the party boxes.
     void SetMainMenuVisible(bool aVisible);
+    // Pause menu / world map open (from their scripts): shows the party list.
+    void SetPauseMenuVisible(bool aVisible);
+    // Party colour (r, g, b, 1) of a remote player's character, for map markers. Grey when unknown.
+    Red::Vector4 GetPlayerColor(Red::EntityID aEntity) const;
     bool IsPlayerReady() const { return m_playerReady; }
     void OnConnected();
     void OnDisconnected(Client::EDisconnectReason);
@@ -73,6 +90,7 @@ private:
     Red::CBaseFunction* m_pCreatePuppet;
     Red::CBaseFunction* m_pDeletePuppet;
     std::optional<uint64_t> m_remotePlayerId;
+    std::unordered_map<uint64_t, RemotePlayer> m_remotePlayers;
     uint64_t m_lastTick;
     flecs::system m_updatePlayerLocation;
     flecs::system m_updateSpawningEntities;
@@ -88,6 +106,8 @@ RTTI_DEFINE_CLASS(NetworkWorldSystem, {
     RTTI_METHOD(Disconnect);
     RTTI_METHOD(ShouldAutoConnect);
     RTTI_METHOD(SetMainMenuVisible);
+    RTTI_METHOD(SetPauseMenuVisible);
+    RTTI_METHOD(GetPlayerColor);
     RTTI_METHOD(GetEntityIdByServerId);
     RTTI_METHOD(GetAppearanceSystem);
     RTTI_METHOD(GetInterpolationSystem);

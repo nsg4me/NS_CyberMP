@@ -29,6 +29,9 @@ public:
 
     void Stop();
 
+    // Host: drop a player's tunnel and refuse them for the rest of this session.
+    void Kick(uint64_t aSteamId);
+
     // From Steam callbacks (game thread).
     void OnSessionRequest(const void* apIdentity);
     void OnSessionFailed(const void* apConnectionInfo);
@@ -56,6 +59,9 @@ private:
     uint64_t m_hostSteamId = 0;
     uint16_t m_clientPort = 0;
     uintptr_t m_clientSocket = ~uintptr_t(0);
+
+    std::unordered_set<uint64_t> m_banned;   // under m_lock
+    std::vector<uint64_t> m_pendingKicks;     // under m_lock, applied by the worker
 
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_workerDone{true};

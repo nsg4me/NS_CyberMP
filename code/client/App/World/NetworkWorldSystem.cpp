@@ -6,6 +6,7 @@
 #include "App/Steam/SteamRelay.h"
 #include "App/Steam/SteamLobby.h"
 #include "App/Rendering/Overlay.h"
+#include "App/Rendering/PartyColours.h"
 #include "RED4ext/Scripting/Natives/Generated/game/Puppet.hpp"
 #include "RED4ext/Scripting/Natives/Generated/vehicle/BaseObject.hpp"
 #include "RED4ext/Scripting/Natives/gameIEntityStubSystem.hpp"
@@ -217,11 +218,58 @@ void NetworkWorldSystem::HandleCharacterLoad(const PacketEvent<server::NotifyCha
 
     auto ccstate = aMessage.get_ccstate();
 
+    if (aMessage.get_is_player() && (aMessage.get_steam_id() || !aMessage.get_username().empty()))
+    {
+        m_remotePlayers[aMessage.get_id()] =
+            RemotePlayer{aMessage.get_id(), std::string(aMessage.get_username().c_str()), aMessage.get_steam_id()};
+    }
+
     Spawn(aMessage.get_id(), position, rotation, equipment, ccstate);
+}
+
+std::vector<NetworkWorldSystem::RemotePlayer> NetworkWorldSystem::GetRemotePlayers() const
+{
+    std::vector<RemotePlayer> players;
+    players.reserve(m_remotePlayers.size());
+    for (const auto& [id, player] : m_remotePlayers)
+        players.push_back(player);
+    return players;
+}
+
+std::optional<Red::Vector4> NetworkWorldSystem::GetRemotePlayerPosition(uint64_t aServerId) const
+{
+    const auto entityId = GetEntityIdByServerId(aServerId);
+    if (entityId.hash == 0)
+        return std::nullopt;
+
+    const auto entity = GetEntity(entityId);
+    auto* object = Red::Cast<Red::GameObject>(entity.GetPtr());
+    if (!object || !object->transformComponent)
+        return std::nullopt;
+
+    const auto& position = object->transformComponent->localTransform.Position;
+    const auto v = position.AsVector3();
+    return Red::Vector4{v.X, v.Y, v.Z, 1.f};
+}
+
+std::optional<Red::Vector4> NetworkWorldSystem::GetLocalPlayerPosition() const
+{
+    const auto system = Red::GetGameSystem<Game::PlayerSystem>();
+    if (!system)
+        return std::nullopt;
+
+    Red::Handle<Red::GameObject> player;
+    system->GetLocalPlayerControlledGameObject(player);
+    if (!player || !player->transformComponent)
+        return std::nullopt;
+
+    const auto v = player->transformComponent->localTransform.Position.AsVector3();
+    return Red::Vector4{v.X, v.Y, v.Z, 1.f};
 }
 
 void NetworkWorldSystem::HandleEntityUnload(const PacketEvent<server::NotifyEntityUnload>& aMessage)
 {
+    m_remotePlayers.erase(aMessage.get_id());
     DeSpawn(aMessage.get_id());
 }
 
@@ -434,6 +482,24 @@ void NetworkWorldSystem::SetMainMenuVisible(bool aVisible)
         App::SteamLobby::Get().SetLocalState("menu");
 }
 
+void NetworkWorldSystem::SetPauseMenuVisible(bool aVisible)
+{
+    App::Overlay::SetPauseMenuVisible(aVisible);
+}
+
+Red::Vector4 NetworkWorldSystem::GetPlayerColor(Red::EntityID aEntity) const
+{
+    int slot = -1;
+    if (const auto entity = FindEntity(aEntity))
+    {
+        if (const auto it = m_remotePlayers.find(entity.id()); it != m_remotePlayers.end() && it->second.steamId)
+            slot = App::SteamLobby::Get().SlotOf(it->second.steamId);
+    }
+
+    const auto c = App::PartyColours::ForSlot(slot);
+    return Red::Vector4{c.r, c.g, c.b, 1.f};
+}
+
 bool NetworkWorldSystem::ShouldAutoConnect()
 {
     m_playerReady = true;
@@ -485,6 +551,8 @@ void NetworkWorldSystem::OnConnected()
 
 void NetworkWorldSystem::OnDisconnected(Client::EDisconnectReason aReason)
 {
+    m_remotePlayers.clear();
+
     each([this](flecs::entity entity, EntityComponent&)
         {
             DeSpawn(entity.raw_id());

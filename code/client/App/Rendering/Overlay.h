@@ -11,6 +11,9 @@ void Toast(std::string aText);
 void SetMainMenuVisible(bool aVisible);
 bool IsMainMenuVisible();
 
+// Pause menu / world map open: shows the interactive party list (names, colours, distance, host controls).
+void SetPauseMenuVisible(bool aVisible);
+
 // Called while building the ImGui frame (game thread).
 void Draw();
 } // namespace App::Overlay

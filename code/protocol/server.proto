@@ -26,6 +26,8 @@ message NotifyCharacterLoad {
     bool is_player = 4;
     repeated string equipment = 5;
     bytes ccstate = 6;
+    string username = 7; // owning player's name (player characters only)
+    uint64 steam_id = 8; // owning player's SteamID, 0 if unknown
 }
 
 message NotifyVehicleLoad {

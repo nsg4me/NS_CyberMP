@@ -2,6 +2,8 @@
 
 #include "ImGuiService.h"
 #include "App/Steam/SteamLobby.h"
+#include "App/Rendering/PartyColours.h"
+#include "App/World/NetworkWorldSystem.h"
 
 namespace
 {
@@ -14,17 +16,18 @@ struct ToastEntry
 std::mutex s_toastLock;
 std::vector<ToastEntry> s_toasts;
 std::atomic<bool> s_mainMenu{false};
+std::atomic<bool> s_pauseMenu{false};
+uint64_t s_confirmKick = 0;
+bool s_confirmEnd = false;
 
 constexpr auto kToastLife = std::chrono::seconds(6);
 constexpr int kSlots = 4;
 
-// One colour per party slot (host first). The map markers use the same palette.
-constexpr ImU32 kSlotColours[kSlots] = {
-    IM_COL32(255, 85, 85, 255),  // red
-    IM_COL32(94, 246, 255, 255), // cyan
-    IM_COL32(243, 230, 0, 255),  // yellow
-    IM_COL32(181, 101, 255, 255) // purple
-};
+ImU32 SlotColour(int aSlot, int aAlpha = 255)
+{
+    const auto c = App::PartyColours::ForSlot(aSlot);
+    return IM_COL32(static_cast<int>(c.r * 255), static_cast<int>(c.g * 255), static_cast<int>(c.b * 255), aAlpha);
+}
 
 constexpr ImGuiWindowFlags kPassive = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
@@ -123,7 +126,7 @@ void DrawParty(float aScale)
             }
 
             const auto& member = party.members[i];
-            const ImU32 colour = kSlotColours[i];
+            const ImU32 colour = SlotColour(i);
 
             draw->AddRectFilled(a, b, IM_COL32(20, 22, 32, 230), 4.f * aScale);
             if (auto texture = imgui ? imgui->GetAvatarTexture(member.avatarHandle) : std::optional<ImTextureID>{})
@@ -160,6 +163,125 @@ void DrawParty(float aScale)
     ImGui::End();
     ImGui::PopStyleVar();
 }
+// Pause menu / map: the party with colours and distances; the host can remove players or end the session.
+void DrawPauseParty(float aScale)
+{
+    auto& lobby = App::SteamLobby::Get();
+    const auto party = lobby.GetSnapshot();
+    if (!party.inLobby || party.members.empty())
+        return;
+
+    auto* world = Red::GetGameSystem<NetworkWorldSystem>();
+    std::optional<Red::Vector4> me;
+    std::vector<NetworkWorldSystem::RemotePlayer> remotes;
+    if (world)
+    {
+        me = world->GetLocalPlayerPosition();
+        remotes = world->GetRemotePlayers();
+    }
+
+    const auto& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos({io.DisplaySize.x - 40.f * aScale, 140.f * aScale}, ImGuiCond_Always, {1.f, 0.f});
+    ImGui::SetNextWindowBgAlpha(0.7f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14.f * aScale, 12.f * aScale});
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+                                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                       ImGuiWindowFlags_AlwaysAutoResize;
+    if (ImGui::Begin("##cpmp-pause-party", nullptr, flags))
+    {
+        ImGui::SetWindowFontScale(1.3f * aScale);
+        ImGui::TextColored(ImVec4(1.f, 0.33f, 0.33f, 1.f), "PARTY");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", party.status.c_str());
+        ImGui::Separator();
+
+        for (size_t i = 0; i < party.members.size(); ++i)
+        {
+            const auto& member = party.members[i];
+            const auto c = App::PartyColours::ForSlot(static_cast<int>(i));
+            ImGui::PushID(static_cast<int>(i));
+
+            // colour swatch (matches the map marker)
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float h = ImGui::GetTextLineHeight();
+            ImGui::GetWindowDrawList()->AddRectFilled(p, {p.x + h, p.y + h}, SlotColour(static_cast<int>(i)), 3.f);
+            ImGui::Dummy({h, h});
+            ImGui::SameLine();
+
+            ImGui::TextColored(ImVec4(c.r, c.g, c.b, 1.f), "%s%s", member.name.c_str(), member.isLocal ? " (you)" : "");
+            if (member.isHost)
+            {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.f, 0.82f, 0.35f, 1.f), "HOST");
+            }
+
+            // where they are
+            std::string where = member.connected ? "connected" : (member.state == "ingame" ? "in game" : "in menu");
+            if (!member.isLocal && me)
+            {
+                for (const auto& remote : remotes)
+                {
+                    if (remote.steamId == member.steamId)
+                    {
+                        if (const auto pos = world->GetRemotePlayerPosition(remote.serverId))
+                        {
+                            const float dx = pos->X - me->X, dy = pos->Y - me->Y, dz = pos->Z - me->Z;
+                            where = fmt::format("{:.0f} m away", std::sqrt(dx * dx + dy * dy + dz * dz));
+                        }
+                        break;
+                    }
+                }
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", where.c_str());
+
+            if (party.isHost && !member.isLocal)
+            {
+                ImGui::SameLine();
+                if (s_confirmKick == member.steamId)
+                {
+                    if (ImGui::SmallButton("Confirm remove"))
+                    {
+                        lobby.Kick(member.steamId);
+                        s_confirmKick = 0;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Cancel"))
+                        s_confirmKick = 0;
+                }
+                else if (ImGui::SmallButton("Remove"))
+                {
+                    s_confirmKick = member.steamId;
+                }
+            }
+            ImGui::PopID();
+        }
+
+        if (party.isHost)
+        {
+            ImGui::Separator();
+            if (s_confirmEnd)
+            {
+                ImGui::TextUnformatted("Send everyone back?");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("End session"))
+                {
+                    lobby.EndSession();
+                    s_confirmEnd = false;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Cancel##end"))
+                    s_confirmEnd = false;
+            }
+            else if (ImGui::SmallButton("End session for everyone"))
+            {
+                s_confirmEnd = true;
+            }
+        }
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
 } // namespace
 
 namespace App::Overlay
@@ -183,6 +305,16 @@ bool IsMainMenuVisible()
     return s_mainMenu;
 }
 
+void SetPauseMenuVisible(bool aVisible)
+{
+    s_pauseMenu = aVisible;
+    if (!aVisible)
+    {
+        s_confirmKick = 0;
+        s_confirmEnd = false;
+    }
+}
+
 void Draw()
 {
     const auto& io = ImGui::GetIO();
@@ -196,5 +328,7 @@ void Draw()
     DrawToasts(scale);
     if (s_mainMenu)
         DrawParty(scale);
+    else if (s_pauseMenu)
+        DrawPauseParty(scale);
 }
 } // namespace App::Overlay

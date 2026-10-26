@@ -374,6 +374,20 @@ server::NotifyCharacterLoad Level::Serialize(flecs::entity aEntity) noexcept
     if (auto* pCharacterComponent = aEntity.get<CharacterComponent>())
     {
         message.set_is_player(pCharacterComponent->IsPlayerPuppet);
+
+        // Whose character this is, so clients can show the right name and party colour.
+        if (pCharacterComponent->IsPlayerPuppet)
+        {
+            aEntity.world().each(
+                [&message, aEntity](const PlayerComponent& aPlayer)
+                {
+                    if (aPlayer.Puppet == aEntity)
+                    {
+                        message.set_username(aPlayer.Username.c_str());
+                        message.set_steam_id(aPlayer.SteamId);
+                    }
+                });
+        }
     }
 
     if (auto* pAppearanceComponent = aEntity.get<AppearanceComponent>())

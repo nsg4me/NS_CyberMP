@@ -7,6 +7,7 @@
 #include "App/Rendering/Overlay.h"
 #include "App/Network/NetworkService.h"
 #include "App/World/NetworkWorldSystem.h"
+#include "App/Steam/SteamRelay.h"
 
 extern std::filesystem::path GCyberpunkMpLocation;
 
@@ -258,6 +259,50 @@ void SteamLobby::Leave()
     m_snapshot = {};
 }
 
+void SteamLobby::Kick(uint64_t aSteamId)
+{
+    if (!m_available || !m_lobby || s_api.owner(s_api.mm, m_lobby) != m_localSteamId || aSteamId == m_localSteamId)
+        return;
+
+    const auto key = fmt::format("kick_{}", aSteamId);
+    s_api.setData(s_api.mm, m_lobby, key.c_str(), "1");
+    SteamRelay::Get().Kick(aSteamId);
+
+    const auto name = s_api.personaName ? Str(s_api.personaName(s_api.friends, aSteamId)) : std::string();
+    Overlay::Toast(fmt::format("Removed {} from the party", name.empty() ? "the player" : name));
+}
+
+void SteamLobby::EndSession()
+{
+    if (!m_available || !m_lobby || s_api.owner(s_api.mm, m_lobby) != m_localSteamId)
+        return;
+
+    s_api.setData(s_api.mm, m_lobby, "ended", "1");
+    Overlay::Toast("Session ended: everyone has been sent back");
+    // The host stays in the (now ended) lobby briefly so members see the flag; it is left with the game.
+}
+
+void SteamLobby::LeaveBecause(const char* acToast)
+{
+    Overlay::Toast(acToast);
+    if (auto network = Core::Container::Get<NetworkService>(); network && network->IsConnected())
+        network->Close();
+    Settings::Get().autoConnect = false;
+    Settings::Get().steamHost = 0;
+    Leave();
+}
+
+int SteamLobby::SlotOf(uint64_t aSteamId)
+{
+    std::lock_guard _(m_lock);
+    for (size_t i = 0; i < m_snapshot.members.size(); ++i)
+    {
+        if (m_snapshot.members[i].steamId == aSteamId)
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
 void SteamLobby::SetLocalState(const char* acState)
 {
     m_localState = acState ? acState : "";
@@ -295,6 +340,7 @@ void SteamLobby::OnLobbyEnter(const void* apData)
 
     m_lobby = data->lobby;
     const bool isHost = s_api.owner(s_api.mm, m_lobby) == m_localSteamId;
+    m_hostAtJoin = s_api.owner(s_api.mm, m_lobby);
     spdlog::info("[Party] entered lobby {} as {}", m_lobby, isHost ? "host" : "member");
 
     if (s_api.setRichPresence)
@@ -381,8 +427,30 @@ void SteamLobby::Refresh()
 
     if (m_lobby)
     {
-        snapshot.inLobby = true;
         const uint64_t ownerId = s_api.owner(s_api.mm, m_lobby);
+
+        // Members: leave when the host kicked us, ended the session, or left (Steam hands the lobby to someone else).
+        if (ownerId != m_localSteamId)
+        {
+            const auto kickKey = fmt::format("kick_{}", m_localSteamId);
+            if (Str(s_api.getData(s_api.mm, m_lobby, kickKey.c_str())) == "1")
+            {
+                LeaveBecause("The host removed you from the party");
+                return;
+            }
+            if (Str(s_api.getData(s_api.mm, m_lobby, "ended")) == "1")
+            {
+                LeaveBecause("The host ended the session");
+                return;
+            }
+            if (m_hostAtJoin && ownerId != m_hostAtJoin)
+            {
+                LeaveBecause("The host left the party");
+                return;
+            }
+        }
+
+        snapshot.inLobby = true;
         snapshot.isHost = ownerId == m_localSteamId;
         const auto hostVersion = Str(s_api.getData(s_api.mm, m_lobby, "version"));
         snapshot.versionMismatch = !snapshot.isHost && hostVersion != m_version;

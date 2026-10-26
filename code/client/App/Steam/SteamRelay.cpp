@@ -354,15 +354,31 @@ void SteamRelay::Stop()
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
+void SteamRelay::Kick(uint64_t aSteamId)
+{
+    std::lock_guard _(m_lock);
+    m_banned.insert(aSteamId);
+    m_pendingKicks.push_back(aSteamId);
+    spdlog::info("[Relay] kicking {}", aSteamId);
+}
+
 void SteamRelay::OnSessionRequest(const void* apIdentity)
 {
     const auto& identity = static_cast<const SessionRequest*>(apIdentity)->identityRemote;
     const uint64_t steamId = identity.GetSteamID64();
 
     Mode mode;
+    bool banned;
     {
         std::lock_guard _(m_lock);
         mode = m_mode;
+        banned = m_banned.contains(steamId);
+    }
+
+    if (banned)
+    {
+        spdlog::info("[Relay] refused session from {}: kicked this session", steamId);
+        return;
     }
 
     if (mode != Mode::kHost)
@@ -413,12 +429,26 @@ void SteamRelay::Run()
         uint16_t serverPort;
         uint64_t hostSteamId;
         SOCKET clientSocket;
+        std::vector<uint64_t> kicks;
         {
             std::lock_guard _(m_lock);
             mode = m_mode;
             serverPort = m_serverPort;
             hostSteamId = m_hostSteamId;
             clientSocket = static_cast<SOCKET>(m_clientSocket);
+            kicks.swap(m_pendingKicks);
+        }
+
+        // Kicked players: close their tunnel (the server then times them out and despawns them).
+        for (const auto id : kicks)
+        {
+            if (const auto it = peers.find(id); it != peers.end())
+            {
+                closesocket(it->second.socket);
+                if (s_api.close)
+                    s_api.close(s_api.messages, &it->second.identity);
+                peers.erase(it);
+            }
         }
 
         const auto now = std::chrono::steady_clock::now();
@@ -451,7 +481,17 @@ void SteamRelay::Run()
             auto* message = messages[i];
             const uint64_t from = message->m_identityPeer.GetSteamID64();
 
-            if (mode == Mode::kHost)
+            bool isBanned;
+            {
+                std::lock_guard _(m_lock);
+                isBanned = m_banned.contains(from);
+            }
+
+            if (mode == Mode::kHost && isBanned)
+            {
+                // ignore: kicked this session
+            }
+            else if (mode == Mode::kHost)
             {
                 auto it = peers.find(from);
                 if (it == peers.end())

@@ -9,6 +9,7 @@ message AuthenticationRequest {
     string token = 2;
     uint64 client_protocol = 3;
     uint64 server_protocol = 4;
+    uint64 steam_id = 5; // 0 without Steam; ties the player to their party slot (colour, name)
 }
 
 message SpawnCharacterRequest {

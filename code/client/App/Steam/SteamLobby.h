@@ -44,6 +44,13 @@ public:
     void Join(uint64_t aLobbyId);
     void Leave();
 
+    // Host only: remove one player (relay + lobby), or send everyone home.
+    void Kick(uint64_t aSteamId);
+    void EndSession();
+
+    // Party slot (0 = host) of a SteamID in the current party, or -1. Slot picks the player's colour.
+    int SlotOf(uint64_t aSteamId);
+
     void SetLocalState(const char* acState);
     void SetLocalConnected(bool aConnected);
 
@@ -63,11 +70,13 @@ private:
 
     void Refresh();
     void PublishLocal();
+    void LeaveBecause(const char* acToast);
 
     bool m_available = false;
     bool m_initTried = false;
     uint64_t m_localSteamId = 0;
     uint64_t m_lobby = 0;
+    uint64_t m_hostAtJoin = 0;
     bool m_creating = false;
     std::string m_pendingConnect;
     std::string m_localState = "menu";
