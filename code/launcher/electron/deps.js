@@ -8,7 +8,7 @@ import decompress from 'decompress'
 
 export const REQUIREMENTS = [
   { id: 'red4ext', name: 'RED4ext', repo: 'wopss/RED4ext', tag: 'v1.31.0', keyword: 'red4ext', files: ['red4ext/RED4ext.dll', 'bin/x64/winmm.dll'] },
-  { id: 'redscript', name: 'redscript', repo: 'jac3km4/redscript', tag: 'v0.5.32', keyword: 'redscript', files: ['engine/tools/scc.exe'] },
+  { id: 'redscript', name: 'redscript', repo: 'jac3km4/redscript', tag: 'v0.5.32', keyword: 'redscript', files: ['engine/tools/scc.exe', 'engine/tools/scc_lib.dll'] },
   { id: 'codeware', name: 'Codeware', repo: 'psiberx/cp2077-codeware', tag: 'v1.21.0', keyword: 'codeware', files: ['red4ext/plugins/Codeware/Codeware.dll'] },
   { id: 'archivexl', name: 'ArchiveXL', repo: 'psiberx/cp2077-archive-xl', tag: 'v1.28.0', keyword: 'archivexl', files: ['red4ext/plugins/ArchiveXL/ArchiveXL.dll'] },
   { id: 'tweakxl', name: 'TweakXL', repo: 'psiberx/cp2077-tweak-xl', tag: 'v1.12.0', keyword: 'tweakxl', files: ['red4ext/plugins/TweakXL/TweakXL.dll'] },
