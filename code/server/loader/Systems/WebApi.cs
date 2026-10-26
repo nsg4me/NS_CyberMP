@@ -41,7 +41,15 @@ namespace Server.Loader.Systems
 
         private WebServer CreateWebServer(string url)
         {
-            Logger.UnregisterLogger<ConsoleLogger>();
+            // EmbedIO's library (Swan) only registers its console logger when it sees a console. Started by the
+            // launcher on Windows (hidden window, redirected output) there is none, and unregistering then throws.
+            try
+            {
+                Logger.UnregisterLogger<ConsoleLogger>();
+            }
+            catch (InvalidOperationException)
+            {
+            }
 
             var server = new WebServer(o => o
                 .WithUrlPrefix(url)
