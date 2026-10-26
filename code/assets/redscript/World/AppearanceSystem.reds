@@ -54,6 +54,32 @@ public native class AppearanceSystem extends IScriptable {
     public let m_deliveryEntries: array<ref<JobEntry>>;
     public let m_mappin: NewMappinID;
 
+    // Map marker of each remote player's character, so it can be removed with the character.
+    private let m_playerMappinEntities: array<EntityID>;
+    private let m_playerMappins: array<NewMappinID>;
+
+    public func RemovePlayerMappin(entityId: EntityID) -> Void {
+        let mappinSystem = GameInstance.GetMappinSystem(GetGameInstance());
+        let i = ArraySize(this.m_playerMappinEntities) - 1;
+        while i >= 0 {
+            if Equals(this.m_playerMappinEntities[i], entityId) {
+                mappinSystem.UnregisterMappin(this.m_playerMappins[i]);
+                ArrayErase(this.m_playerMappinEntities, i);
+                ArrayErase(this.m_playerMappins, i);
+            }
+            i -= 1;
+        }
+    }
+
+    public func RemoveAllPlayerMappins() -> Void {
+        let mappinSystem = GameInstance.GetMappinSystem(GetGameInstance());
+        for id in this.m_playerMappins {
+            mappinSystem.UnregisterMappin(id);
+        }
+        ArrayClear(this.m_playerMappinEntities);
+        ArrayClear(this.m_playerMappins);
+    }
+
     public func OnWorldAttached() -> Void {
         this.m_callbackSystem = GameInstance.GetCallbackSystem();
         // if IsDefined(this.m_callbackSystem) {
@@ -69,6 +95,7 @@ public native class AppearanceSystem extends IScriptable {
     }
 
     public func OnBeforeWorldDetach() -> Void {
+        this.RemoveAllPlayerMappins();
         if IsDefined(this.m_callbackSystem) {
             this.m_callbackSystem.UnregisterCallback(n"Entity/Attached", this);
         }
@@ -172,9 +199,14 @@ public native class AppearanceSystem extends IScriptable {
                 ArrayPush(this.m_entities, entity);
             }
 
+            // One marker per character, also when the entity is attached again (streaming).
+            this.RemovePlayerMappin(entity.GetEntityID());
+
             let mappinData: MappinData;
             let mappinSystem: ref<MappinSystem> = GameInstance.GetMappinSystem(GetGameInstance());
-            mappinData.mappinType = t"Mappins.CPO_RemotePlayerMappinDefinition";
+            // The dynamic quest definition (also used for the player's own vehicle) is the one the world map shows;
+            // the CPO_RemotePlayerMappinDefinition record only reaches the minimap.
+            mappinData.mappinType = t"Mappins.QuestDynamicMappinDefinition";
             // barcode thing, ref base\\gameplay\\gui\\widgets\\mappins\\cyberspace\\cyberspace_object_mappin.inkwidget
             // mappinData.variant = gamedataMappinVariant.CyberspaceObject;
             // red phone thing, ref base\\gameplay\\gui\\widgets\\mappins\\interaction\\quick_hack_mappin.inkwidget
@@ -184,7 +216,9 @@ public native class AppearanceSystem extends IScriptable {
             mappinData.active = true;
             // mappinData.visibleThroughWalls = true;
             // might need to adjust up a bit?
-            mappinSystem.RegisterMappinWithObject(mappinData, entity, n"Nameplate");
+            let mappinId = mappinSystem.RegisterMappinWithObject(mappinData, entity, n"Nameplate");
+            ArrayPush(this.m_playerMappinEntities, entity.GetEntityID());
+            ArrayPush(this.m_playerMappins, mappinId);
 
             // this.SetMorphWeights(entity);
         } else {

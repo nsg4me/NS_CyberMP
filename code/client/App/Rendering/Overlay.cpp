@@ -1,5 +1,9 @@
 #include "Overlay.h"
 
+#include <fstream>
+
+extern std::filesystem::path GCyberpunkMpLocation;
+
 #include "ImGuiService.h"
 #include "App/Steam/SteamLobby.h"
 #include "App/Rendering/PartyColours.h"
@@ -32,6 +36,95 @@ ImU32 SlotColour(int aSlot, int aAlpha = 255)
 constexpr ImGuiWindowFlags kPassive = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
                                       ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize;
+
+// Draggable panels remember where they were left (overlay.json next to the mod), stored as fractions of the screen
+// so they stay in place across resolutions.
+struct PanelPositions
+{
+    bool loaded = false;
+    std::unordered_map<std::string, ImVec2> positions;
+} s_panels;
+
+std::filesystem::path PanelFile()
+{
+    return GCyberpunkMpLocation / "overlay.json";
+}
+
+void LoadPanels()
+{
+    if (s_panels.loaded)
+        return;
+    s_panels.loaded = true;
+    try
+    {
+        std::ifstream in(PanelFile());
+        if (!in)
+            return;
+        const auto json = nlohmann::json::parse(in);
+        for (const auto& [name, value] : json.items())
+        {
+            if (value.is_array() && value.size() == 2)
+                s_panels.positions[name] = {value[0].get<float>(), value[1].get<float>()};
+        }
+    }
+    catch (...)
+    {
+    }
+}
+
+void SavePanels()
+{
+    try
+    {
+        nlohmann::json json;
+        for (const auto& [name, pos] : s_panels.positions)
+            json[name] = {pos.x, pos.y};
+        std::ofstream(PanelFile()) << json.dump(2);
+    }
+    catch (...)
+    {
+    }
+}
+
+// Places a draggable panel: the saved spot if there is one, the default otherwise.
+void PlacePanel(const char* acName, ImVec2 aDefault, ImVec2 aPivot)
+{
+    LoadPanels();
+    const auto& io = ImGui::GetIO();
+    if (const auto it = s_panels.positions.find(acName); it != s_panels.positions.end())
+        ImGui::SetNextWindowPos({it->second.x * io.DisplaySize.x, it->second.y * io.DisplaySize.y}, ImGuiCond_Appearing);
+    else
+        ImGui::SetNextWindowPos(aDefault, ImGuiCond_Appearing, aPivot);
+}
+
+// After Begin(): keep the panel on screen and remember where it was dropped.
+void TrackPanel(const char* acName)
+{
+    const auto& io = ImGui::GetIO();
+    const ImVec2 pos = ImGui::GetWindowPos();
+    const ImVec2 size = ImGui::GetWindowSize();
+
+    ImVec2 clamped{std::clamp(pos.x, 0.f, std::max(0.f, io.DisplaySize.x - size.x)),
+                   std::clamp(pos.y, 0.f, std::max(0.f, io.DisplaySize.y - size.y))};
+    if (clamped.x != pos.x || clamped.y != pos.y)
+        ImGui::SetWindowPos(clamped);
+
+    if (ImGui::IsWindowFocused() && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+    {
+        const ImVec2 relative{clamped.x / io.DisplaySize.x, clamped.y / io.DisplaySize.y};
+        auto& saved = s_panels.positions[acName];
+        if (saved.x != relative.x || saved.y != relative.y)
+        {
+            saved = relative;
+            SavePanels();
+        }
+    }
+}
+
+// Panels can be dragged anywhere (click and hold on them); no title bar, no resizing.
+constexpr ImGuiWindowFlags kPanel = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+                                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                    ImGuiWindowFlags_AlwaysAutoResize;
 
 std::string Initials(const std::string& aName)
 {
@@ -96,11 +189,12 @@ void DrawParty(float aScale)
     const float gap = 14.f * aScale;
     const float border = 3.f * aScale;
 
-    ImGui::SetNextWindowPos({40.f * aScale, 40.f * aScale}, ImGuiCond_Always);
+    PlacePanel("party", {40.f * aScale, 40.f * aScale}, {0.f, 0.f});
     ImGui::SetNextWindowBgAlpha(0.55f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14.f * aScale, 12.f * aScale});
-    if (ImGui::Begin("##cpmp-party", nullptr, kPassive))
+    if (ImGui::Begin("##cpmp-party", nullptr, kPanel))
     {
+        TrackPanel("party");
         ImGui::SetWindowFontScale(1.35f * aScale);
         ImGui::TextColored(ImVec4(1.f, 0.33f, 0.33f, 1.f), "PARTY");
         ImGui::SameLine();
@@ -181,14 +275,13 @@ void DrawPauseParty(float aScale)
     }
 
     const auto& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos({io.DisplaySize.x - 40.f * aScale, 140.f * aScale}, ImGuiCond_Always, {1.f, 0.f});
+    PlacePanel("pause", {io.DisplaySize.x - 40.f * aScale, 140.f * aScale}, {1.f, 0.f});
     ImGui::SetNextWindowBgAlpha(0.7f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14.f * aScale, 12.f * aScale});
-    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
-                                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
-                                       ImGuiWindowFlags_AlwaysAutoResize;
+    constexpr ImGuiWindowFlags flags = kPanel;
     if (ImGui::Begin("##cpmp-pause-party", nullptr, flags))
     {
+        TrackPanel("pause");
         ImGui::SetWindowFontScale(1.3f * aScale);
         ImGui::TextColored(ImVec4(1.f, 0.33f, 0.33f, 1.f), "PARTY");
         ImGui::SameLine();

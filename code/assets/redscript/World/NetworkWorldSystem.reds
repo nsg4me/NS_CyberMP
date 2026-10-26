@@ -57,6 +57,8 @@ public native class NetworkWorldSystem extends IGameSystem {
     }
 
     public func DeletePuppet(entityId: EntityID) {
+        // The marker is registered separately and would stay on the map after the character is gone.
+        this.GetAppearanceSystem().RemovePlayerMappin(entityId);
         GameInstance.GetDynamicEntitySystem().DeleteEntity(entityId);
     }
 }
