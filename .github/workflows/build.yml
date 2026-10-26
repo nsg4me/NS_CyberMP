@@ -288,5 +288,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Tags with a suffix (v0.2.0-rc.1) are test builds: published as pre-releases, which the launcher's update
+          # check skips (it only looks at the latest full release).
+          PRERELEASE=""
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then PRERELEASE="--prerelease"; fi
           gh release create "$GITHUB_REF_NAME" CyberpunkMP-windows.zip CyberpunkMP-linux.tar.gz \
-            --repo "$GITHUB_REPOSITORY" --title "NS-CyberMP $GITHUB_REF_NAME" --generate-notes
+            --repo "$GITHUB_REPOSITORY" --title "NS-CyberMP $GITHUB_REF_NAME" --generate-notes $PRERELEASE
