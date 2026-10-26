@@ -8,6 +8,9 @@ on:
       - main
       - dev
       - 'port/**'
+    # Pushing a version tag (v0.2.0) publishes a GitHub Release with the Windows and Linux packages
+    tags:
+      - 'v*'
 
 # NOTE: pnpm doesn't support command 'ci' for now.
 #
@@ -33,6 +36,15 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git submodule sync --recursive
           git submodule update --init --force --recursive --depth=1
+
+      # One version for launcher, mod and release: the tag (v0.2.0 -> 0.2.0), or VERSION + "-dev.<run>" for other builds
+      - name: 'Set version'
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF#refs/tags/v}"; else V="$(cat VERSION)-dev.$GITHUB_RUN_NUMBER"; fi
+          echo "CPMP_VERSION=$V" >> "$GITHUB_ENV"
+          node -e "const f='code/launcher/electron/package.json';const p=JSON.parse(require('fs').readFileSync(f));p.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')" "$V"
+          echo "Version $V"
 
       # Restore/save split so installed packages are kept even when a later step fails (they take ~10 min to build)
       - name: 'Restore xmake dependencies'
@@ -87,6 +99,11 @@ jobs:
       - name: 'Generate build'
         run: xmake install -o distrib
 
+      # The mod reads this to tell players apart by version (and the launcher compares it with the latest release)
+      - name: 'Stamp version'
+        shell: bash
+        run: printf '%s' "$CPMP_VERSION" > distrib/launcher/mod/version.txt
+
       - name: 'Package build'
         run: xmake pack
 
@@ -105,6 +122,20 @@ jobs:
             build/windows/x64/${{ matrix.mode }}/CyberpunkMP.dll
             build/windows/x64/${{ matrix.mode }}/CyberpunkMP.pdb
           if-no-files-found: warn
+
+      # Windows package for players: CyberpunkMP/ with the launcher, mod and server
+      - name: 'Assemble Windows package'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item -Recurse distrib/launcher package/CyberpunkMP
+          7z a -tzip CyberpunkMP-windows.zip ./package/CyberpunkMP | Out-Null
+
+      - name: 'Upload Windows package'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CyberpunkMP-windows
+          path: CyberpunkMP-windows.zip
 
       # The mod folder (client DLL + assets) on its own, for the Linux package
       - name: 'Upload mod'
@@ -183,6 +214,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # One version for launcher, mod and release: the tag (v0.2.0 -> 0.2.0), or VERSION + "-dev.<run>" for other builds
+      - name: 'Set version'
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF#refs/tags/v}"; else V="$(cat VERSION)-dev.$GITHUB_RUN_NUMBER"; fi
+          echo "CPMP_VERSION=$V" >> "$GITHUB_ENV"
+          node -e "const f='code/launcher/electron/package.json';const p=JSON.parse(require('fs').readFileSync(f));p.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')" "$V"
+          echo "Version $V"
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -226,3 +266,27 @@ jobs:
         with:
           name: CyberpunkMP-linux
           path: CyberpunkMP-linux.tar.gz
+
+  # Tag pushes only: publish both packages as a GitHub Release (the launcher's update check reads the latest one)
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, package-linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: CyberpunkMP-windows
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: CyberpunkMP-linux
+
+      - name: 'Publish release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" CyberpunkMP-windows.zip CyberpunkMP-linux.tar.gz \
+            --repo "$GITHUB_REPOSITORY" --title "NS-CyberMP $GITHUB_REF_NAME" --generate-notes

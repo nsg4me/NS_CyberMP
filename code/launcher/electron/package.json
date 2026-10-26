@@ -24,6 +24,7 @@
       "app.js",
       "host.js",
       "deps.js",
+      "updater.js",
       "upnp.js",
       "preload.mjs",
       "package.json"

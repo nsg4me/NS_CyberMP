@@ -1,6 +1,7 @@
 import ServerList from './components/servers/ServerList.tsx'
 import HostPanel from './components/HostPanel.tsx'
 import RequirementsPanel from './components/RequirementsPanel.tsx'
+import UpdateBanner from './components/UpdateBanner.tsx'
 import { Alert, Box, Button, createTheme, CssBaseline, Snackbar, ThemeProvider } from '@mui/material'
 import WindowFrame from './components/WindowFrame.tsx'
 import { useEffect, useState } from 'react'
@@ -113,6 +114,8 @@ export default function App () {
             Select game executable
           </Button>
         </Box>
+
+        <UpdateBanner/>
 
         <RequirementsPanel gamePath={selectedFilePath ?? undefined}/>
 

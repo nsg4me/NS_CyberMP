@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url'
 import electron from 'electron'
 import * as host from './host.js'
 import * as deps from './deps.js'
+import * as updater from './updater.js'
 
 let win = null
 
@@ -118,6 +119,16 @@ electron.app.whenReady().then(async () => {
     return host.startHosting({ ...options, gamePath, adminPassword })
   })
   electron.ipcMain.handle('host-stop', () => host.stopHosting())
+
+  // Updates from the repo's GitHub Releases
+  electron.ipcMain.handle('update-check', () => updater.check())
+  electron.ipcMain.handle('app-version', () => updater.currentVersion())
+  electron.ipcMain.handle('update-install', async () => {
+    await host.stopHosting()
+    return updater.install(host.rootDir(),
+      (percent) => { if (win) win.webContents.send('update-progress', percent) },
+      (line) => { if (win) win.webContents.send('update-log', line) })
+  })
 
   // Required mods (RED4ext, redscript, Codeware, ArchiveXL, TweakXL, Input Loader) and the VC++ runtime
   electron.ipcMain.handle('requirements-status', () => deps.status(store.get('game_path')))

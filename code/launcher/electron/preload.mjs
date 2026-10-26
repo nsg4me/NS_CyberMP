@@ -105,6 +105,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('host-status', listener)
   },
   launchGame: (session) => ipcRenderer.invoke('launch-game', session),
+  appVersion: () => ipcRenderer.invoke('app-version'),
+  updateCheck: () => ipcRenderer.invoke('update-check'),
+  updateInstall: () => ipcRenderer.invoke('update-install'),
+  onUpdateProgress: (callback) => {
+    const listener = (event, percent) => callback(percent)
+    ipcRenderer.on('update-progress', listener)
+    return () => ipcRenderer.removeListener('update-progress', listener)
+  },
+  onUpdateLog: (callback) => {
+    const listener = (event, line) => callback(line)
+    ipcRenderer.on('update-log', listener)
+    return () => ipcRenderer.removeListener('update-log', listener)
+  },
   requirementsStatus: () => ipcRenderer.invoke('requirements-status'),
   requirementsInstall: (options) => ipcRenderer.invoke('requirements-install', options),
   onRequirementsLog: (callback) => {
