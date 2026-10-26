@@ -76,6 +76,8 @@ bool Settings::ApplyConnectString(const std::string& acConnect)
             port = static_cast<uint16_t>(std::strtoul(token.c_str() + 7, nullptr, 10));
         else if (token.rfind("--steam-host=", 0) == 0)
             steamHost = std::strtoull(token.c_str() + 13, nullptr, 10);
+        else if (token.rfind("--lobby=", 0) == 0)
+            Get().lobby = std::strtoull(token.c_str() + 8, nullptr, 10);
     }
 
     const bool hasAddress = !ip.empty() && port != 0;
@@ -121,6 +123,12 @@ void Settings::Load()
             settings.steamHost = std::strtoull((*steamHost)[0].c_str(), nullptr, 10);
             hasCommandLineAddress = hasCommandLineAddress || settings.steamHost != 0;
         }
+    }
+
+    if (const auto lobby = launchParameters.Get("-lobby"); lobby)
+    {
+        if (lobby->Size() > 0)
+            settings.lobby = std::strtoull((*lobby)[0].c_str(), nullptr, 10);
     }
 
     if (const auto mods = launchParameters.Get("-mod"); mods)

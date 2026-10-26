@@ -5,6 +5,7 @@
 #include "App/Threading/ThreadService.h"
 #include "App/World/NetworkWorldSystem.h"
 #include "App/Steam/SteamRelay.h"
+#include "App/Steam/SteamLobby.h"
 
 // The game ships steam_api64.dll and initializes Steamworks itself; we only borrow its exports at runtime, so there is
 // no link-time dependency and non-Steam copies (GOG, Epic) simply have no Steam features.
@@ -115,6 +116,10 @@ std::string ConnectString()
     else if (!relay.IsAvailable())
         return {};
 
+    // "Join Game" from the friends list also puts the friend in the party lobby (version check, party boxes).
+    if (const auto lobby = App::SteamLobby::Get().GetLobbyId())
+        connect += fmt::format(" --lobby={}", lobby);
+
     return connect;
 }
 } // namespace
@@ -208,6 +213,10 @@ void SteamService::OnGameUpdate(RED4ext::CGameApplication*)
         m_attached = Attach();
         if (!m_attached)
             return;
+
+        // Party lobby: a lobby from the command line / an earlier connect string is joined right away.
+        if (SteamLobby::Get().Init() && Settings::Get().lobby && !Settings::Get().host)
+            SteamLobby::Get().Join(Settings::Get().lobby);
     }
 
     UpdatePresence();
@@ -216,13 +225,29 @@ void SteamService::OnGameUpdate(RED4ext::CGameApplication*)
 void SteamService::UpdatePresence()
 {
     const auto& settings = Settings::Get();
-    if (!settings.host || m_presenceSet)
+    if (!settings.host)
         return;
+
+    // The connect string gains --lobby=<id> once the party lobby exists: publish it again then.
+    if (m_presenceSet)
+    {
+        const auto lobby = SteamLobby::Get().GetLobbyId();
+        if (lobby && lobby != m_presenceLobby)
+        {
+            m_presenceLobby = lobby;
+            const auto connect = ConnectString();
+            if (!connect.empty())
+                s_steam.setRichPresence(s_steam.friends, "connect", connect.c_str());
+        }
+        return;
+    }
 
     // Steam relay first: friends then need no port forwarding on this side.
     const bool relay = App::SteamRelay::Get().StartHost(settings.port);
 
     const auto connect = ConnectString();
+    if (!connect.empty())
+        SteamLobby::Get().Host(connect);
     if (connect.empty())
     {
         spdlog::warn("[Steam] hosting without Steam networking or a public address: friends cannot join through Steam");
@@ -263,9 +288,17 @@ void SteamService::OnJoinRequested(uint64_t aFriendSteamId, const char* acConnec
     ThreadService::RunInMainThread(
         [connect]()
         {
+            Settings::Get().lobby = 0;
             if (!Settings::ApplyConnectString(connect))
             {
                 spdlog::warn("[Steam] the invite has no server address");
+                return;
+            }
+
+            // Join the party too: the lobby's version check then decides whether connecting is allowed.
+            if (Settings::Get().lobby && SteamLobby::Get().Init())
+            {
+                SteamLobby::Get().Join(Settings::Get().lobby);
                 return;
             }
 

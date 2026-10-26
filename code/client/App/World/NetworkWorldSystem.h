@@ -50,6 +50,8 @@ struct NetworkWorldSystem : RED4ext::IGameSystem, Core::HookingAgent, flecs::wor
 
     // Called by the HUD once the player is in the world: marks the player ready and says whether to connect now.
     bool ShouldAutoConnect();
+    // Title screen open (from its script): shows the party boxes.
+    void SetMainMenuVisible(bool aVisible);
     bool IsPlayerReady() const { return m_playerReady; }
     void OnConnected();
     void OnDisconnected(Client::EDisconnectReason);
@@ -85,6 +87,7 @@ RTTI_DEFINE_CLASS(NetworkWorldSystem, {
     RTTI_METHOD(Connect);
     RTTI_METHOD(Disconnect);
     RTTI_METHOD(ShouldAutoConnect);
+    RTTI_METHOD(SetMainMenuVisible);
     RTTI_METHOD(GetEntityIdByServerId);
     RTTI_METHOD(GetAppearanceSystem);
     RTTI_METHOD(GetInterpolationSystem);

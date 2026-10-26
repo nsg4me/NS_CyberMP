@@ -1,9 +1,14 @@
 module CyberpunkMP.Ink
 
+import CyberpunkMP.World.*
+
 // "NS-CyberMP" in the top-right corner of the title screen, so it is obvious the mod is installed and loaded.
 @wrapMethod(SingleplayerMenuGameController)
 protected cb func OnInitialize() -> Bool {
     let result = wrappedMethod();
+
+    // Party boxes (drawn by the mod's overlay) show while the title screen is up.
+    GameInstance.GetNetworkWorldSystem().SetMainMenuVisible(true);
 
     let root = this.GetRootCompoundWidget();
     if IsDefined(root) {

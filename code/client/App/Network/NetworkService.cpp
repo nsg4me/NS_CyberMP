@@ -1,5 +1,7 @@
 #include "NetworkService.h"
 #include "App/Steam/SteamService.h"
+#include "App/Steam/SteamLobby.h"
+#include "App/Rendering/Overlay.h"
 
 #include "App/World/NetworkWorldSystem.h"
 #include "Game/Utils.h"
@@ -59,6 +61,34 @@ void NetworkService::OnDisconnected(EDisconnectReason aReason)
     Red::GetGameSystem<NetworkWorldSystem>()->OnDisconnected(aReason);
 
     m_authenticated = false;
+    App::SteamLobby::Get().SetLocalConnected(false);
+
+    switch (aReason)
+    {
+    case kNormal:
+    case kAborted: // left on purpose (disconnect key, quitting)
+        App::Overlay::Toast("Disconnected from the party");
+        m_reconnectAt.reset();
+        m_reconnectAttempts = 0;
+        break;
+    case kKicked:
+        App::Overlay::Toast("You were removed from the session by the host");
+        m_reconnectAt.reset();
+        break;
+    default:
+        if (m_reconnectAttempts < 5)
+        {
+            ++m_reconnectAttempts;
+            m_reconnectAt = std::chrono::steady_clock::now() + std::chrono::seconds(3 * m_reconnectAttempts);
+            App::Overlay::Toast(fmt::format("Connection lost: reconnecting (attempt {} of 5)...", m_reconnectAttempts));
+        }
+        else
+        {
+            m_reconnectAt.reset();
+            App::Overlay::Toast("Could not reconnect. Hold / to try again.");
+        }
+        break;
+    }
 }
 
 void NetworkService::OnUpdate()
@@ -71,6 +101,14 @@ void NetworkService::OnUpdate()
 void NetworkService::OnGameUpdate(RED4ext::CGameApplication* apApp)
 {
     Update();
+
+    if (m_reconnectAt && std::chrono::steady_clock::now() >= *m_reconnectAt)
+    {
+        m_reconnectAt.reset();
+        auto* system = Red::GetGameSystem<NetworkWorldSystem>();
+        if (system && system->IsPlayerReady() && !IsConnected())
+            system->Connect();
+    }
 }
 
 void NetworkService::HandleAuthentication(const PacketEvent<server::AuthenticationResponse>& aResponse)
@@ -84,6 +122,11 @@ void NetworkService::HandleAuthentication(const PacketEvent<server::Authenticati
     }
 
     m_settings = aResponse.get_settings();
+
+    m_reconnectAttempts = 0;
+    m_reconnectAt.reset();
+    App::SteamLobby::Get().SetLocalConnected(true);
+    App::Overlay::Toast("Connected to the party");
 
     Red::GetGameSystem<NetworkWorldSystem>()->OnConnected();
 

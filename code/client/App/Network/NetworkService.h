@@ -70,6 +70,10 @@ private:
     entt::dispatcher m_dispatcher;
     uint64_t m_lastCharacterUpdate{};
     server::Settings m_settings;
+
+    // Reconnect after an unexpected drop (timeout, network problem), while the player is still in the world.
+    std::optional<std::chrono::steady_clock::time_point> m_reconnectAt;
+    int m_reconnectAttempts = 0;
 };
 
 template <NetworkMessage T>

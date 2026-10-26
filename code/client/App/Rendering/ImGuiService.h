@@ -8,6 +8,7 @@
 namespace App
 {
 struct DebugService;
+struct AvatarTexture;
 
 struct ImGuiService : Core::Feature, Core::HookingAgent, Core::LoggingAgent, Core::RenderingAgent
 {
@@ -20,11 +21,16 @@ struct ImGuiService : Core::Feature, Core::HookingAgent, Core::LoggingAgent, Cor
     bool OnWindowProc(HWND ahWnd, UINT auMsg, WPARAM awParam, LPARAM alParam) override;
     void OnBootstrap() override;
 
+    // Steam avatar as an ImGui texture. Empty until it has been uploaded (on the next presented frame).
+    std::optional<ImTextureID> GetAvatarTexture(int aSteamImageHandle);
+
 protected:
 
     void OnGameUpdate(RED4ext::CGameApplication* apApp) override;
 
     void PrepareUpdate();
+    void UploadPendingTextures();
+    bool UploadTexture(AvatarTexture& aTexture);
 
 private:
 
@@ -40,6 +46,12 @@ private:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_pSrvDescHeap{};
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_pRtvDescHeap{};
     std::recursive_mutex m_imguiLock;
+
+    static constexpr UINT kAvatarSlots = 8;
+    UINT m_avatarSlotBase = 0;
+    UINT m_srvIncrement = 0;
+    Microsoft::WRL::ComPtr<ID3D12Device> m_pDevice{};
+    std::unordered_map<int, std::shared_ptr<AvatarTexture>> m_avatars;
     std::array<ImDrawData, 3> m_imguiDrawDataBuffers;
     ImGuiStyle m_styleReference{};
     bool m_initialized = false;

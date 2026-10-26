@@ -4,6 +4,8 @@
 
 #include "App/Network/NetworkService.h"
 #include "App/Steam/SteamRelay.h"
+#include "App/Steam/SteamLobby.h"
+#include "App/Rendering/Overlay.h"
 #include "RED4ext/Scripting/Natives/Generated/game/Puppet.hpp"
 #include "RED4ext/Scripting/Natives/Generated/vehicle/BaseObject.hpp"
 #include "RED4ext/Scripting/Natives/gameIEntityStubSystem.hpp"
@@ -174,6 +176,7 @@ void NetworkWorldSystem::OnAfterWorldDetach()
     spdlog::info("[NetworkWorldSystem] OnAfterWorldDetach");
     m_ready = false;
     m_playerReady = false;
+    App::Overlay::SetMainMenuVisible(false);
 
     m_interpolationSystem->OnAfterWorldDetach();
     m_chatSystem->OnAfterWorldDetach();
@@ -424,9 +427,18 @@ void NetworkWorldSystem::Connect()
     Core::Container::Get<NetworkService>()->Connect(address);
 }
 
+void NetworkWorldSystem::SetMainMenuVisible(bool aVisible)
+{
+    App::Overlay::SetMainMenuVisible(aVisible);
+    if (aVisible)
+        App::SteamLobby::Get().SetLocalState("menu");
+}
+
 bool NetworkWorldSystem::ShouldAutoConnect()
 {
     m_playerReady = true;
+    App::Overlay::SetMainMenuVisible(false);
+    App::SteamLobby::Get().SetLocalState("ingame");
     return Settings::Get().autoConnect && !Core::Container::Get<NetworkService>()->IsConnected();
 }
 

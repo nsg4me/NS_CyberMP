@@ -4,9 +4,22 @@
 #include "win32.h"
 #include "App/Application.h"
 #include "App/Debugging/DebugService.h"
+#include "App/Rendering/Overlay.h"
+#include "App/Steam/SteamLobby.h"
 
 namespace App
 {
+struct AvatarTexture
+{
+    UINT slot = 0;
+    std::vector<uint8_t> rgba;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu{};
+    bool ready = false;
+    bool failed = false;
+};
 
 ImGuiService::ImGuiService()
 {
@@ -32,7 +45,9 @@ void ImGuiService::OnRenderInit()
 
     D3D12_DESCRIPTOR_HEAP_DESC srvdesc = {};
     srvdesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    srvdesc.NumDescriptors = buffersCounts;
+    // Slots after the ones ImGui uses hold the party avatars.
+    srvdesc.NumDescriptors = buffersCounts + kAvatarSlots;
+    m_avatarSlotBase = buffersCounts;
     srvdesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
     if (FAILED(pDevice->CreateDescriptorHeap(&srvdesc, IID_PPV_ARGS(&m_pSrvDescHeap))))
@@ -41,6 +56,8 @@ void ImGuiService::OnRenderInit()
         OnReset();
         return;
     }
+    m_pDevice = pDevice;
+    m_srvIncrement = pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     D3D12_DESCRIPTOR_HEAP_DESC rtvdesc;
     rtvdesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -182,6 +199,8 @@ void ImGuiService::OnPresent()
     if (!m_imguiDrawDataBuffers[0].Valid)
         return;
 
+    UploadPendingTextures();
+
     const auto bufferIndex = GetSwapChain()->GetCurrentBackBufferIndex();
     auto& frameContext = m_frameContexts[bufferIndex];
     frameContext.CommandAllocator->Reset();
@@ -233,7 +252,14 @@ void ImGuiService::OnReset(bool aCompleteReset)
     }
 
     m_frameContexts.clear();
-    
+
+    {
+        // The textures live in the SRV heap being released; they are uploaded again after the next init.
+        std::lock_guard _(m_imguiLock);
+        m_avatars.clear();
+    }
+    m_pDevice.Reset();
+
     m_pRtvDescHeap.Reset();
     m_pSrvDescHeap.Reset();
     m_pCommandList.Reset();
@@ -275,8 +301,8 @@ void ImGuiService::PrepareUpdate()
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
-    // r
     Core::Container::Get<DebugService>()->Draw();
+    Overlay::Draw();
   
     ImGui::Render();
 
@@ -295,4 +321,173 @@ void ImGuiService::PrepareUpdate()
 
     std::swap(m_imguiDrawDataBuffers[1], m_imguiDrawDataBuffers[2]);
 }
+
+std::optional<ImTextureID> ImGuiService::GetAvatarTexture(int aSteamImageHandle)
+{
+    if (aSteamImageHandle <= 0 || !m_initialized)
+        return std::nullopt;
+
+    std::lock_guard _(m_imguiLock);
+
+    auto it = m_avatars.find(aSteamImageHandle);
+    if (it == m_avatars.end())
+    {
+        if (m_avatars.size() >= kAvatarSlots)
+            m_avatars.clear(); // more avatars than slots over a session: start over
+
+        auto texture = std::make_shared<AvatarTexture>();
+        if (!SteamLobby::Get().GetAvatar(aSteamImageHandle, texture->rgba, texture->width, texture->height))
+            return std::nullopt; // Steam has not downloaded it yet; asked again next frame
+
+        // Lowest free slot
+        for (UINT slot = 0; slot < kAvatarSlots; ++slot)
+        {
+            if (std::none_of(m_avatars.begin(), m_avatars.end(), [slot](const auto& e) { return e.second->slot == slot; }))
+            {
+                texture->slot = slot;
+                break;
+            }
+        }
+        it = m_avatars.emplace(aSteamImageHandle, texture).first;
+    }
+
+    const auto& texture = *it->second;
+    if (!texture.ready)
+        return std::nullopt;
+    return (ImTextureID)(texture.gpu.ptr);
 }
+
+void ImGuiService::UploadPendingTextures()
+{
+    std::lock_guard _(m_imguiLock);
+    for (auto& [handle, texture] : m_avatars)
+    {
+        if (!texture->ready && !texture->failed)
+        {
+            texture->failed = !UploadTexture(*texture);
+            texture->ready = !texture->failed;
+            if (texture->failed)
+                LogError("ImGuiService - avatar texture upload failed");
+        }
+    }
+}
+
+// Standard D3D12 texture upload: copy the pixels through an upload buffer on the game's direct queue and wait for it
+// (a 64x64 avatar, once per player), then describe it in the avatar's SRV slot.
+bool ImGuiService::UploadTexture(AvatarTexture& aTexture)
+{
+    if (!m_pDevice || !m_pSrvDescHeap || aTexture.rgba.empty())
+        return false;
+
+    D3D12_HEAP_PROPERTIES defaultHeap{};
+    defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = aTexture.width;
+    desc.Height = aTexture.height;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> texture;
+    if (FAILED(m_pDevice->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                  D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&texture))))
+        return false;
+
+    const UINT pitch = (aTexture.width * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
+                       ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
+    const UINT uploadSize = aTexture.height * pitch;
+
+    D3D12_HEAP_PROPERTIES uploadHeap{};
+    uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+    D3D12_RESOURCE_DESC bufferDesc{};
+    bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    bufferDesc.Width = uploadSize;
+    bufferDesc.Height = 1;
+    bufferDesc.DepthOrArraySize = 1;
+    bufferDesc.MipLevels = 1;
+    bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+    bufferDesc.SampleDesc.Count = 1;
+    bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> upload;
+    if (FAILED(m_pDevice->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+                                                  D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&upload))))
+        return false;
+
+    void* mapped = nullptr;
+    D3D12_RANGE noRead{0, 0};
+    if (FAILED(upload->Map(0, &noRead, &mapped)))
+        return false;
+    for (UINT y = 0; y < aTexture.height; ++y)
+        std::memcpy(static_cast<uint8_t*>(mapped) + y * pitch, aTexture.rgba.data() + y * aTexture.width * 4,
+                    aTexture.width * 4);
+    upload->Unmap(0, nullptr);
+
+    D3D12_TEXTURE_COPY_LOCATION src{};
+    src.pResource = upload.Get();
+    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    src.PlacedFootprint.Footprint.Width = aTexture.width;
+    src.PlacedFootprint.Footprint.Height = aTexture.height;
+    src.PlacedFootprint.Footprint.Depth = 1;
+    src.PlacedFootprint.Footprint.RowPitch = pitch;
+
+    D3D12_TEXTURE_COPY_LOCATION dst{};
+    dst.pResource = texture.Get();
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst.SubresourceIndex = 0;
+
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = texture.Get();
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator;
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> list;
+    Microsoft::WRL::ComPtr<ID3D12Fence> fence;
+    if (FAILED(m_pDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) ||
+        FAILED(m_pDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+                                            IID_PPV_ARGS(&list))) ||
+        FAILED(m_pDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
+        return false;
+
+    list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+    list->ResourceBarrier(1, &barrier);
+    list->Close();
+
+    ID3D12CommandList* lists[] = {list.Get()};
+    GetCommandQueue()->ExecuteCommandLists(1, lists);
+    GetCommandQueue()->Signal(fence.Get(), 1);
+
+    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!event)
+        return false;
+    fence->SetEventOnCompletion(1, event);
+    WaitForSingleObject(event, 2000);
+    CloseHandle(event);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Texture2D.MipLevels = 1;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+    const UINT index = m_avatarSlotBase + aTexture.slot;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_pSrvDescHeap->GetCPUDescriptorHandleForHeapStart();
+    cpu.ptr += static_cast<SIZE_T>(index) * m_srvIncrement;
+    m_pDevice->CreateShaderResourceView(texture.Get(), &srv, cpu);
+
+    aTexture.gpu = m_pSrvDescHeap->GetGPUDescriptorHandleForHeapStart();
+    aTexture.gpu.ptr += static_cast<UINT64>(index) * m_srvIncrement;
+    aTexture.resource = texture;
+    aTexture.rgba.clear();
+    aTexture.rgba.shrink_to_fit();
+    return true;
+}
+}
+

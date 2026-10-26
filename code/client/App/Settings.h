@@ -38,6 +38,8 @@ struct Settings
     bool autoConnect = false;
     // Host's SteamID when joining through the Steam relay (from an invite: --steam-host=<id>); 0 = connect by address.
     uint64_t steamHost = 0;
+    // Party lobby to join (--lobby=<id> in the host's connect string / on the command line).
+    uint64_t lobby = 0;
 
     // Address to connect to, from a Steam join request ("--online --ip=... --port=..." connect string).
     // Returns false when the string has no usable address.

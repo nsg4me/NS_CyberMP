@@ -34,6 +34,7 @@ private:
     bool m_attachTried = false;
     bool m_attached = false;
     bool m_presenceSet = false;
+    uint64_t m_presenceLobby = 0;
     std::chrono::steady_clock::time_point m_nextAttempt{};
     int m_attempts = 0;
 };
