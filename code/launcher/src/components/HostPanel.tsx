@@ -28,7 +28,12 @@ export default function HostPanel () {
 
   const start = async () => {
     setNotice(null)
-    await window.electronAPI.hostStart({ name, maxPlayers: 4 })
+    try {
+      await window.electronAPI.hostStart({ name, maxPlayers: 4 })
+    } catch (err: any) {
+      // Errors from the main process arrive as "Error invoking remote method 'host-start': Error: ..."
+      setNotice(String(err?.message ?? err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    }
   }
 
   const joinViaSteam = async () => {
@@ -36,7 +41,7 @@ export default function HostPanel () {
       await window.electronAPI.launchGame({ waitForInvite: true })
       setNotice('Game starting. Accept your friend\'s Steam invite (or use "Join Game" on them in your friends list) once you are in.')
     } catch (err: any) {
-      setNotice(err.message)
+      setNotice(String(err?.message ?? err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     }
   }
 

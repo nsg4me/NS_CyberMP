@@ -24,6 +24,11 @@ function log (line) {
   setStatus({ lines })
 }
 
+// A line in the launcher's hosting log (also used for mod install steps).
+export function note (line) {
+  log(line)
+}
+
 export function getStatus () {
   return status
 }

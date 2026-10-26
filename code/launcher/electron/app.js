@@ -1,6 +1,6 @@
 import Store from 'electron-store'
 import crypto from 'crypto'
-import { promises as fs } from 'fs'
+import { promises as fs, existsSync } from 'fs'
 import decompress from 'decompress'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -12,19 +12,16 @@ import * as tools from './tools.js'
 
 let win = null
 
-// Link the launcher's mod folder into the game's RED4ext plugins (a junction on Windows, a symlink on Linux).
+// Put the launcher's mod folder into the game's RED4ext plugins as zzzCyberpunkMP: a junction on Windows, a symlink on
+// Linux, or a copy when links are not allowed. Every step is logged in the launcher, since the game silently runs
+// without multiplayer when this is missing.
 async function installMod (gamePath) {
   const sourceDir = host.modDir()
-  const targetDir = path.join(path.dirname(path.dirname(path.dirname(gamePath))), 'red4ext', 'plugins', 'zzzCyberpunkMP')
+  const pluginsDir = path.join(path.dirname(path.dirname(path.dirname(gamePath))), 'red4ext', 'plugins')
+  const targetDir = path.join(pluginsDir, 'zzzCyberpunkMP')
 
-  console.log(`Creating symlink from ${sourceDir} to ${targetDir}`)
-
-  try {
-    await fs.unlink(targetDir)
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error
-    }
+  if (!existsSync(path.join(sourceDir, 'CyberpunkMP.dll'))) {
+    throw new Error(`The mod is missing from ${sourceDir} (CyberpunkMP.dll not found). Extract the whole package again.`)
   }
 
   // NTFS game drives on Linux: Wine will not load a DLL without the exec bit.
@@ -32,16 +29,35 @@ async function installMod (gamePath) {
     try { await fs.chmod(path.join(sourceDir, 'CyberpunkMP.dll'), 0o755) } catch {}
   }
 
-  try {
-    await fs.mkdir(path.dirname(targetDir), { recursive: true })
-    await fs.symlink(sourceDir, targetDir, 'junction')
-    return `Symlink created from ${sourceDir} to ${targetDir}`
-  } catch (error) {
-    if (error.code === 'EEXIST') {
-      return 'Symlink already exists'
+  await fs.mkdir(pluginsDir, { recursive: true })
+
+  // Clear what is there: an old link is removed; a real folder (an earlier manual install) is kept aside, not deleted.
+  let existing = null
+  try { existing = await fs.lstat(targetDir) } catch {}
+  if (existing) {
+    if (existing.isSymbolicLink()) {
+      const current = await fs.readlink(targetDir).catch(() => null)
+      if (current && path.resolve(current) === path.resolve(sourceDir)) return 'Mod already linked'
+      await fs.unlink(targetDir)
+    } else if (existing.isDirectory()) {
+      const aside = `${targetDir}.old-${Date.now()}`
+      await fs.rename(targetDir, aside)
+      host.note(`Moved an older zzzCyberpunkMP folder aside to ${aside}`)
     } else {
-      throw error
+      await fs.unlink(targetDir)
     }
+  }
+
+  try {
+    await fs.symlink(sourceDir, targetDir, 'junction')
+    host.note(`Mod linked into the game (${targetDir})`)
+    return 'linked'
+  } catch (error) {
+    // Some setups refuse links (permissions, file systems): copy instead. The launcher re-copies on every start.
+    host.note(`Could not link the mod (${error.code || error.message}); copying it instead`)
+    await fs.cp(sourceDir, targetDir, { recursive: true, force: true })
+    host.note(`Mod copied into the game (${targetDir})`)
+    return 'copied'
   }
 }
 
@@ -111,7 +127,8 @@ electron.app.whenReady().then(async () => {
   electron.ipcMain.handle('host-status', () => host.getStatus())
   electron.ipcMain.handle('host-start', async (event, options) => {
     const gamePath = store.get('game_path')
-    if (gamePath) await installMod(gamePath)
+    if (!gamePath) throw new Error('Select the game executable first.')
+    await installMod(gamePath)
     let adminPassword = store.get('admin_password')
     if (!adminPassword) {
       adminPassword = crypto.randomBytes(18).toString('base64url')

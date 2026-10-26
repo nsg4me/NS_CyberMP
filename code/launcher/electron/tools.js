@@ -52,8 +52,23 @@ export async function collectLogs ({ gamePath, modDir, hostLines, launcherVersio
     if (Date.now() - stat.mtimeMs < 24 * 3600 * 1000 && await add(protonLog, 'proton.log')) included.push('proton.log')
   } catch {}
 
+  // Whether (and how) the mod is installed in the game: the first thing to check when multiplayer does not load.
+  let modInGame = 'unknown'
+  if (gamePath) {
+    const target = path.join(path.dirname(path.dirname(path.dirname(gamePath))), 'red4ext', 'plugins', 'zzzCyberpunkMP')
+    try {
+      const st = await fs.lstat(target)
+      modInGame = st.isSymbolicLink() ? `link -> ${await fs.readlink(target).catch(() => '?')}` : (st.isDirectory() ? 'folder (copy)' : 'file?')
+      modInGame += existsSync(path.join(target, 'CyberpunkMP.dll')) ? ', CyberpunkMP.dll present' : ', CyberpunkMP.dll MISSING'
+    } catch {
+      modInGame = 'missing (zzzCyberpunkMP not in red4ext/plugins)'
+    }
+  }
+
   const info = {
     launcherVersion,
+    modInGame,
+    modDir,
     modVersion: (await fs.readFile(path.join(modDir, 'version.txt'), 'utf8').catch(() => 'unknown')).trim(),
     platform: `${process.platform} ${os.release()}`,
     gamePath,
