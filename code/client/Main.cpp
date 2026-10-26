@@ -67,8 +67,9 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
         void(*pInputLoaderAdd)(RED4ext::v1::PluginHandle, const wchar_t*);
         if (inputLoaderModule != nullptr && (pInputLoaderAdd = reinterpret_cast<decltype(pInputLoaderAdd)>(GetProcAddress(inputLoaderModule, "Add"))))
         {
-            const wchar_t* input_path = canonical(GCyberpunkMpLocation / TP_INPUTS_LOCATION).c_str();
-            pInputLoaderAdd(aHandle, input_path);
+            // Keep the path alive for the call (c_str() of a temporary dangled).
+            const auto inputPath = canonical(GCyberpunkMpLocation / TP_INPUTS_LOCATION);
+            pInputLoaderAdd(aHandle, inputPath.c_str());
         }
         else
         {

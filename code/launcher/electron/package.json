@@ -25,6 +25,7 @@
       "host.js",
       "deps.js",
       "updater.js",
+      "tools.js",
       "upnp.js",
       "preload.mjs",
       "package.json"
@@ -42,12 +43,13 @@
   },
   "private": true,
   "devDependencies": {
-    "electron-devtools-installer": "^3.2.0",
-    "react-devtools": "^6.0.1",
     "electron": "^31.7.7",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "electron-devtools-installer": "^3.2.0",
+    "react-devtools": "^6.0.1"
   },
   "dependencies": {
+    "adm-zip": "0.5.16",
     "decompress": "^4.2.1",
     "electron-store": "^10.0.0",
     "readable-stream": "^4.5.2"

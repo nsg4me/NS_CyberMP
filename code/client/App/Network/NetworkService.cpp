@@ -85,7 +85,7 @@ void NetworkService::OnDisconnected(EDisconnectReason aReason)
         else
         {
             m_reconnectAt.reset();
-            App::Overlay::Toast("Could not reconnect. Hold / to try again.");
+            App::Overlay::Toast("Could not reconnect. Hold the connect key (default /) to try again.");
         }
         break;
     }

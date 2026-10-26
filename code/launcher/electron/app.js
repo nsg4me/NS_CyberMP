@@ -8,6 +8,7 @@ import electron from 'electron'
 import * as host from './host.js'
 import * as deps from './deps.js'
 import * as updater from './updater.js'
+import * as tools from './tools.js'
 
 let win = null
 
@@ -119,6 +120,28 @@ electron.app.whenReady().then(async () => {
     return host.startHosting({ ...options, gamePath, adminPassword })
   })
   electron.ipcMain.handle('host-stop', () => host.stopHosting())
+
+  // Support tools: log bundle, launch-option check, key bindings
+  electron.ipcMain.handle('logs-collect', async () => {
+    const gamePath = store.get('game_path')
+    return tools.collectLogs({
+      gamePath,
+      modDir: host.modDir(),
+      hostLines: host.getStatus().lines,
+      launcherVersion: updater.currentVersion(),
+      requirements: await deps.status(gamePath).catch(() => null)
+    })
+  })
+  electron.ipcMain.handle('launch-option-status', () => tools.launchOptionStatus())
+  electron.ipcMain.handle('bindings-get', () => tools.getBindings(host.modDir()))
+  electron.ipcMain.handle('bindings-keys', () => tools.KEYS)
+  electron.ipcMain.handle('bindings-set', async (event, bindings) => {
+    store.set('bindings', bindings)
+    return tools.applyBindings(host.modDir(), bindings)
+  })
+  // Updates replace the mod's input file: put the player's keys back
+  const savedBindings = store.get('bindings')
+  if (savedBindings) tools.applyBindings(host.modDir(), savedBindings).catch(() => {})
 
   // Updates from the repo's GitHub Releases
   electron.ipcMain.handle('update-check', () => updater.check())

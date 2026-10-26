@@ -24,9 +24,13 @@ export default function RequirementsPanel ({ gamePath }: { gamePath?: string }) 
   const [status, setStatus] = useState<Status | null>(null)
   const [busy, setBusy] = useState(false)
   const [lines, setLines] = useState<string[]>([])
+  const [launchOption, setLaunchOption] = useState<{ checked: boolean, ok: boolean } | null>(null)
   const logRef = useRef<HTMLPreElement>(null)
 
-  const refresh = () => window.electronAPI.requirementsStatus().then(setStatus)
+  const refresh = () => {
+    window.electronAPI.launchOptionStatus().then(setLaunchOption).catch(() => setLaunchOption(null))
+    return window.electronAPI.requirementsStatus().then(setStatus)
+  }
 
   useEffect(() => { refresh() }, [gamePath])
 
@@ -79,9 +83,15 @@ export default function RequirementsPanel ({ gamePath }: { gamePath?: string }) 
       </Stack>
 
       {linux && (
-        <Alert severity="info" sx={{ mt: 2 }}>
-          Linux: in Steam, set Cyberpunk 2077's launch options to <b>WINEDLLOVERRIDES="winmm=n,b" %command%</b> once,
-          otherwise RED4ext does not load. The VC++ runtime is installed into the game's Proton prefix with protontricks.
+        <Alert severity={launchOption?.checked && !launchOption.ok ? 'warning' : launchOption?.ok && launchOption.checked ? 'success' : 'info'}
+               sx={{ mt: 2 }}
+               action={<Button color="inherit" size="small"
+                               onClick={() => navigator.clipboard.writeText('WINEDLLOVERRIDES="winmm=n,b" %command%')}>Copy</Button>}>
+          {launchOption?.checked && launchOption.ok
+            ? <>Steam launch option is set (RED4ext will load).</>
+            : <>{launchOption?.checked ? <b>Steam launch option missing. </b> : null}
+                In Steam, set Cyberpunk 2077's launch options to <b>WINEDLLOVERRIDES="winmm=n,b" %command%</b>,
+                otherwise RED4ext does not load.</>}
         </Alert>
       )}
 

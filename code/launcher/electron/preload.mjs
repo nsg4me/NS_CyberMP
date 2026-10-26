@@ -105,6 +105,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('host-status', listener)
   },
   launchGame: (session) => ipcRenderer.invoke('launch-game', session),
+  collectLogs: () => ipcRenderer.invoke('logs-collect'),
+  launchOptionStatus: () => ipcRenderer.invoke('launch-option-status'),
+  getBindings: () => ipcRenderer.invoke('bindings-get'),
+  getBindingKeys: () => ipcRenderer.invoke('bindings-keys'),
+  setBindings: (bindings) => ipcRenderer.invoke('bindings-set', bindings),
   appVersion: () => ipcRenderer.invoke('app-version'),
   updateCheck: () => ipcRenderer.invoke('update-check'),
   updateInstall: () => ipcRenderer.invoke('update-install'),

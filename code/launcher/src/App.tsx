@@ -2,6 +2,7 @@ import ServerList from './components/servers/ServerList.tsx'
 import HostPanel from './components/HostPanel.tsx'
 import RequirementsPanel from './components/RequirementsPanel.tsx'
 import UpdateBanner from './components/UpdateBanner.tsx'
+import ToolsPanel from './components/ToolsPanel.tsx'
 import { Alert, Box, Button, createTheme, CssBaseline, Snackbar, ThemeProvider } from '@mui/material'
 import WindowFrame from './components/WindowFrame.tsx'
 import { useEffect, useState } from 'react'
@@ -120,6 +121,8 @@ export default function App () {
         <RequirementsPanel gamePath={selectedFilePath ?? undefined}/>
 
         <HostPanel/>
+
+        <ToolsPanel/>
 
         <Box sx={{ width: '100%', overflow: 'auto', flex: 1 }}>
           <ServerList/>
