@@ -194,12 +194,14 @@ void InterpolationSystem::HandleNotifyEntityMove(const PacketEvent<server::Notif
     if (!entity)
         return;
 
-    auto* pInterpolation = entity.get_mut<InterpolationComponent>();
+    // Moves can arrive while the remote character is still spawning, before the observer has given it an
+    // InterpolationComponent (flecs 4 get_mut returns null then). ensure adds it, so early moves are kept too.
+    auto& interpolation = entity.ensure<InterpolationComponent>();
 
-    if (!pInterpolation->TimePoints.empty() && pInterpolation->TimePoints.back().Tick > aMessage.get_tick())
+    if (!interpolation.TimePoints.empty() && interpolation.TimePoints.back().Tick > aMessage.get_tick())
         return;
 
-    pInterpolation->TimePoints.push_back(InterpolationComponent::Timepoint{position, rotation, aMessage.get_speed(), aMessage.get_tick()});
+    interpolation.TimePoints.push_back(InterpolationComponent::Timepoint{position, rotation, aMessage.get_speed(), aMessage.get_tick()});
 }
 
 static Core::RawFunc<4018412273UL, float (*)(Red::move::Component*, MultiMovementController*)> AttachController;
