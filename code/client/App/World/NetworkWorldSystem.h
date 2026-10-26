@@ -83,10 +83,12 @@ protected:
     void HandleSpawnCharacterResponse(const PacketEvent<server::SpawnCharacterResponse>& aMessage);
 
     void UpdatePlayerLocation() const;
+    void ReportSync();
 
 private:
     bool m_ready{false};
     bool m_playerReady{false};
+    std::chrono::steady_clock::time_point m_nextSyncReport{};
     Red::CBaseFunction* m_pCreatePuppet;
     Red::CBaseFunction* m_pDeletePuppet;
     std::optional<uint64_t> m_remotePlayerId;

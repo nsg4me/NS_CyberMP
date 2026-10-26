@@ -10,16 +10,18 @@ export default function WindowFrame () {
   const [maximized, setMaximized] = useState(false)
 
   return (
-    <AppBar component="nav" sx={{ zIndex: 10000 }}>
+    // The window has no system frame: this bar is where it is dragged from (buttons opt out so they stay clickable).
+    <AppBar component="nav" sx={{ zIndex: 10000, WebkitAppRegion: 'drag' }}
+            onDoubleClick={() => { window.electronAPI.maximizeApp(); setMaximized(m => !m) }}>
       <Toolbar variant="dense">
         <Typography
           fontSize="small"
           component="div"
           sx={{ flexGrow: 1, display: { xs: 'none', sm: 'block' } }}
         >
-          Cyberpunk 2077 Server List
+          NS-CyberMP
         </Typography>
-        <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+        <Box sx={{ display: { xs: 'none', sm: 'block' }, WebkitAppRegion: 'no-drag' }}>
           <Button key={'minimize-app'} sx={{ color: '#fff' }} onClick={window.electronAPI.minimizeApp}>
             <MinimizeIcon fontSize="small"/>
           </Button>

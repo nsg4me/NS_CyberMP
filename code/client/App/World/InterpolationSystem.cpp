@@ -1,4 +1,5 @@
 #include "InterpolationSystem.h"
+#include "SyncDiagnostics.h"
 
 #include <App/Components/AttachedComponent.h>
 #include <App/Threading/ThreadService.h>
@@ -66,7 +67,10 @@ void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComp
     const auto pEntityStubSystem = Red::GetGameSystem<Red::game::IEntityStubSystem>();
     const auto* pStub = pEntityStubSystem->FindStub(aEntityComponent.Id);
     if (!pStub)
+    {
+        ++SyncDiagnostics::NoStubFrames;
         return;
+    }
 
     if (aEntity.has<AttachedComponent>())
         return;
@@ -107,6 +111,7 @@ void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComp
             }
 
             ForceMoveTo(vehicle, transform, tick - aInterpolation.PreviousFrame.Tick);
+            ++SyncDiagnostics::VehicleApplies;
             //ForceTransform(vehicle, transform, true);
 
             aInterpolation.PreviousFrame = InterpolationComponent::Timepoint{position, rot, 0.f, static_cast<uint64_t>(tick)};
@@ -114,6 +119,9 @@ void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComp
     }
     else
     {
+        if (!aEntityComponent.Controller)
+            ++SyncDiagnostics::NoControllerFrames;
+
         if (aEntityComponent.Controller)
         {
             const auto speed{Lerp(first.Velocity, second.Velocity, ratio)};
@@ -122,6 +130,7 @@ void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComp
 
             const auto pos = Red::Vector4{position.x, position.y, position.z, 0.f};
             aEntityComponent.Controller->SetTransform(pos, direction, speed);
+            ++SyncDiagnostics::CharacterApplies;
 
             aInterpolation.PreviousFrame = InterpolationComponent::Timepoint{position, glm::vec3{0.f, 0.f, direction}, speed, static_cast<uint64_t>(tick)};
         }
@@ -191,6 +200,8 @@ void InterpolationSystem::HandleNotifyEntityMove(const PacketEvent<server::Notif
     else
         rotation = {0.f, 0.f, aMessage.get_rotation()};
 
+    ++SyncDiagnostics::MovesReceived;
+
     if (!entity)
         return;
 
@@ -209,6 +220,7 @@ static Core::RawFunc<4018412273UL, float (*)(Red::move::Component*, MultiMovemen
 void (*RealIdleController_SetAnimation)(Game::Controller*, AnimationData&);
 void HookIdleController_SetAnimation(Game::Controller* apController, AnimationData& data)
 {
+    ++SyncDiagnostics::ControllerHookCalls;
     auto* pMoveComponent = apController->MoveComponent;
     Game::EntityPtr entity(pMoveComponent);
     if (const auto pOwner = Red::Cast<Red::GameObject>(entity.GetValuePtr()))
@@ -226,6 +238,8 @@ void HookIdleController_SetAnimation(Game::Controller* apController, AnimationDa
 
                 auto* pController = Red::Memory::New<MultiMovementController>();
                 AttachController(pMoveComponent, pController);
+                ++SyncDiagnostics::ControllersAttached;
+                spdlog::info("[Sync] movement controller attached to remote character {}", id.hash);
 
                 if (flecsEntity)
                 {

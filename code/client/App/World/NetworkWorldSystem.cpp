@@ -7,6 +7,7 @@
 #include "App/Steam/SteamLobby.h"
 #include "App/Rendering/Overlay.h"
 #include "App/Rendering/PartyColours.h"
+#include "SyncDiagnostics.h"
 #include "RED4ext/Scripting/Natives/Generated/game/Puppet.hpp"
 #include "RED4ext/Scripting/Natives/Generated/vehicle/BaseObject.hpp"
 #include "RED4ext/Scripting/Natives/gameIEntityStubSystem.hpp"
@@ -148,7 +149,48 @@ void NetworkWorldSystem::Update(uint64_t aTick)
 
     const auto service = Core::Container::Get<NetworkService>();
     if (service && service->IsConnected())
+    {
         progress(static_cast<float>(delta) / 1000.f);
+        ReportSync();
+    }
+}
+
+// Every 5 s while connected: what the sync did, and where each remote character is versus where it should be.
+void NetworkWorldSystem::ReportSync()
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (now < m_nextSyncReport)
+        return;
+    m_nextSyncReport = now + std::chrono::seconds(5);
+
+    using namespace SyncDiagnostics;
+    spdlog::info("[Sync] 5s: sent {} moves ({} vehicle), received {}, controller hook {} / attached {}, applied {} char "
+                 "+ {} vehicle, frames without controller {}, without stub {}",
+                 MovesSent.exchange(0), VehicleMovesSent.exchange(0), MovesReceived.exchange(0),
+                 ControllerHookCalls.exchange(0), ControllersAttached.load(), CharacterApplies.exchange(0),
+                 VehicleApplies.exchange(0), NoControllerFrames.exchange(0), NoStubFrames.exchange(0));
+
+    each(
+        [this](flecs::entity aEntity, const EntityComponent& aComponent)
+        {
+            const auto* pInterpolation = aEntity.get<InterpolationComponent>();
+            std::string target = "none";
+            float error = -1.f;
+            if (pInterpolation && !pInterpolation->TimePoints.empty())
+            {
+                const auto& last = pInterpolation->TimePoints.back().Position;
+                target = fmt::format("({:.1f}, {:.1f}, {:.1f})", last.x, last.y, last.z);
+                if (const auto actual = GetRemotePlayerPosition(aEntity.id()))
+                {
+                    const float dx = actual->X - last.x, dy = actual->Y - last.y, dz = actual->Z - last.z;
+                    error = std::sqrt(dx * dx + dy * dy + dz * dz);
+                }
+            }
+            spdlog::info("[Sync]   {} {}: controller {}, queued points {}, latest target {}, off by {:.1f} m",
+                         aComponent.IsVehicle ? "vehicle" : "character", aEntity.id(),
+                         aComponent.Controller ? "yes" : "NO",
+                         pInterpolation ? pInterpolation->TimePoints.size() : 0, target, error);
+        });
 }
 
 void NetworkWorldSystem::OnWorldAttached(RED4ext::world::RuntimeScene* aScene)
@@ -360,6 +402,7 @@ void NetworkWorldSystem::UpdatePlayerLocation() const
 
             const auto pNetworkService = Core::Container::Get<NetworkService>();
             pNetworkService->Send(request);
+            ++SyncDiagnostics::VehicleMovesSent;
 
             client::MoveEntityRequest characterRequest;
             characterRequest.set_position(pos);
@@ -392,6 +435,7 @@ void NetworkWorldSystem::UpdatePlayerLocation() const
 
         const auto pNetworkService = Core::Container::Get<NetworkService>();
         pNetworkService->Send(request);
+        ++SyncDiagnostics::MovesSent;
     }
 
     // if (GetEntityByServerId(*GetRemotePlayerId()).get_mut<InterpolationComponent>()->Attached)
