@@ -513,11 +513,11 @@ void DrawNameplates(float aScale)
         if (showDistance)
         {
             const auto label = fmt::format("{:.0f} m", distance);
-            const float small = size * 0.7f;
-            const ImVec2 ls = font->CalcTextSizeA(small, FLT_MAX, 0.f, label.c_str());
+            const float labelSize = size * 0.7f;
+            const ImVec2 ls = font->CalcTextSizeA(labelSize, FLT_MAX, 0.f, label.c_str());
             const ImVec2 lat{screen.x - ls.x * 0.5f, screen.y + 2.f * aScale};
-            draw->AddText(font, small, {lat.x + aScale, lat.y + aScale}, IM_COL32(0, 0, 0, 200), label.c_str());
-            draw->AddText(font, small, lat, IM_COL32(230, 230, 235, 220), label.c_str());
+            draw->AddText(font, labelSize, {lat.x + aScale, lat.y + aScale}, IM_COL32(0, 0, 0, 200), label.c_str());
+            draw->AddText(font, labelSize, lat, IM_COL32(230, 230, 235, 220), label.c_str());
         }
     }
 }
