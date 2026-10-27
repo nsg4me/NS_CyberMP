@@ -407,6 +407,17 @@ void SteamLobby::SetActivity(const std::string& acFlag, bool aActive)
 
 void SteamLobby::SharePing(float aX, float aY, float aZ)
 {
+    // The map can report the same placement twice in a row
+    static float s_x = 0, s_y = 0, s_z = 0;
+    static std::chrono::steady_clock::time_point s_at{};
+    const auto now = std::chrono::steady_clock::now();
+    if (now - s_at < std::chrono::seconds(2) && std::abs(aX - s_x) < 0.5f && std::abs(aY - s_y) < 0.5f &&
+        std::abs(aZ - s_z) < 0.5f)
+        return;
+    s_x = aX;
+    s_y = aY;
+    s_z = aZ;
+    s_at = now;
     m_localPing = fmt::format("{};{:.1f};{:.1f};{:.1f}", ++m_pingSeq, aX, aY, aZ);
     spdlog::info("[Party] sharing map waypoint ({:.1f}, {:.1f}, {:.1f}) with the party", aX, aY, aZ);
     if (m_available && m_lobby)
@@ -428,17 +439,16 @@ void SteamLobby::UpdatePings(const Snapshot& acSnapshot)
         present.insert(member.steamId);
         const auto value = Str(s_api.getMemberData(s_api.mm, m_lobby, member.steamId, "ping"));
         auto& seen = m_pings[member.steamId];
-        if (value.empty() || value == seen.value)
-            continue;
-
-        const bool first = seen.value.empty();
-        seen.value = value;
-        // The value already there when we join is old; only new waypoints are shown.
-        if (first && !seen.visible && seen.shown == std::chrono::steady_clock::time_point{})
+        if (!seen.initialized)
         {
-            seen.shown = now - std::chrono::minutes(10);
+            // Whatever is there when we first see this member is an old waypoint: remember it, do not show it.
+            seen.initialized = true;
+            seen.value = value;
             continue;
         }
+        if (value.empty() || value == seen.value)
+            continue;
+        seen.value = value;
 
         float x = 0, y = 0, z = 0;
         unsigned seq = 0;

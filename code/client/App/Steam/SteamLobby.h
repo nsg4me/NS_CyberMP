@@ -111,6 +111,7 @@ private:
     struct PingSeen
     {
         std::string value;
+        bool initialized = false; // first look at this member done (what was there already is not shown)
         int slot = -1;
         std::chrono::steady_clock::time_point shown{};
         bool visible = false;

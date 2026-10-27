@@ -26,6 +26,10 @@ void VehicleSystem::OnWorldAttached(RED4ext::world::RuntimeScene* aScene)
 void VehicleSystem::OnAfterWorldDetach()
 {
     m_ready = false;
+    // The world (and every vehicle in it) is gone
+    m_vehicleRemoteId = std::nullopt;
+    m_vehicleGameId = std::nullopt;
+    m_pendingMounts.clear();
 }
 
 void VehicleSystem::OnDisconnected()

@@ -39,12 +39,14 @@ inline void SetSimpleMovement(Red::vehicle::IMoveSystem* apMoveSystem, const Red
 
 void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComponent, InterpolationComponent& aInterpolation, float aSimulationDelay, Red::vehicle::IMoveSystem* apMoveSystem)
 {
-    const float tick = NetworkWorldSystem::GetTick() - aSimulationDelay;
+    // Ticks are milliseconds since 1970 (~1.8e12): far beyond what a float holds exactly (a float steps in ~2 minute
+    // increments at that size), which froze interpolation. All tick arithmetic stays in 64-bit integers.
+    const int64_t tick = static_cast<int64_t>(NetworkWorldSystem::GetTick()) - static_cast<int64_t>(aSimulationDelay);
 
     while (!aInterpolation.TimePoints.empty())
     {
-        auto future = *aInterpolation.TimePoints.begin();
-        if (tick > future.Tick)
+        const auto& future = *aInterpolation.TimePoints.begin();
+        if (tick > static_cast<int64_t>(future.Tick))
             aInterpolation.TimePoints.pop_front();
         else
             break;
@@ -56,15 +58,24 @@ void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComp
         return;
     }
 
+    // First frame for this entity: start from the first known position, not from the world origin.
+    if (aInterpolation.PreviousFrame.Tick == 0)
+    {
+        aInterpolation.PreviousFrame = aInterpolation.TimePoints.front();
+        aInterpolation.PreviousFrame.Tick = static_cast<uint64_t>(tick);
+    }
+
     const auto& first = aInterpolation.PreviousFrame;
     const auto& second = aInterpolation.TimePoints.front();
 
-    // Calculate delta movement since last update
+    // Fraction of the way from the previous drawn frame to the next known position
     auto ratio = 0.0001f;
-    const auto tickDelta = static_cast<float>(second.Tick - first.Tick);
-    if (tickDelta > 0.0)
+    const int64_t tickDelta = static_cast<int64_t>(second.Tick) - static_cast<int64_t>(first.Tick);
+    if (tickDelta > 0)
     {
-        ratio = 1.0f / tickDelta * (tick - first.Tick);
+        ratio = static_cast<float>(static_cast<double>(tick - static_cast<int64_t>(first.Tick)) /
+                                   static_cast<double>(tickDelta));
+        ratio = std::clamp(ratio, 0.f, 1.f);
     }
 
     const auto pEntityStubSystem = Red::GetGameSystem<Red::game::IEntityStubSystem>();
@@ -113,7 +124,8 @@ void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComp
                 EnablePhysics(vehicle, 0x100, false);
             }
 
-            ForceMoveTo(vehicle, transform, tick - aInterpolation.PreviousFrame.Tick);
+            ForceMoveTo(vehicle, transform,
+                        static_cast<float>(tick - static_cast<int64_t>(aInterpolation.PreviousFrame.Tick)));
             ++SyncDiagnostics::VehicleApplies;
             //ForceTransform(vehicle, transform, true);
 

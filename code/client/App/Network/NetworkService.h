@@ -59,6 +59,10 @@ protected:
 
     void HandleAuthentication(const PacketEvent<server::AuthenticationResponse>& aResponse);
 
+    // Asks the server to (re)create our character from the current player: after authenticating, and again after
+    // loading a save / respawning while still connected (the old character is replaced).
+    void RequestSpawn();
+
     static ScratchAllocator& GetScratch();
 
 private:

@@ -154,15 +154,25 @@ void NetworkService::HandleAuthentication(const PacketEvent<server::Authenticati
 
     Red::GetGameSystem<NetworkWorldSystem>()->OnConnected();
 
+    RequestSpawn();
+}
+
+void NetworkService::RequestSpawn()
+{
     client::SpawnCharacterRequest request;
     request.set_is_player(true);
 
     const auto system = Red::GetGameSystem<Game::PlayerSystem>();
     Red::Handle<Red::GameObject> player;
     system->GetLocalPlayerControlledGameObject(player);
+    if (!player || !player->transformComponent)
+    {
+        spdlog::warn("[Spawn] no local player to spawn yet");
+        return;
+    }
 
-    const auto cEntityPosition = player->transformComponent->localTransform.Position.AsVector3();
-    const auto cEntityRotation = Game::ToGlm(player->transformComponent->localTransform.Orientation);
+    const auto cEntityPosition = player->transformComponent->worldTransform.Position.AsVector3();
+    const auto cEntityRotation = Game::ToGlm(player->transformComponent->worldTransform.Orientation);
 
     common::Vector3 pos;
     pos.set_x(cEntityPosition.X);
@@ -183,14 +193,16 @@ void NetworkService::HandleAuthentication(const PacketEvent<server::Authenticati
     {
         auto writer = CMPWriter();
         CharacterCustomizationState_Serialize(stateHandle->instance, &writer);
-        spdlog::info("Got bytes: {}", writer.bytes.size());
+        spdlog::info("[Appearance] sending my customization: {} bytes", writer.bytes.size());
         request.set_ccstate(writer.bytes);
     } 
     else
     {
-        spdlog::info("CustomizationState was null");
+        spdlog::warn("[Appearance] my customization state is not available: friends will see a default look");
     }
 
+    spdlog::info("[Spawn] asking the server to spawn my character at ({:.1f}, {:.1f}, {:.1f})", cEntityPosition.X,
+                 cEntityPosition.Y, cEntityPosition.Z);
     Send(request);
 }
 

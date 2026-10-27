@@ -296,6 +296,19 @@ void NetworkWorldSystem::OnAfterWorldDetach()
     m_chatSystem->OnAfterWorldDetach();
     m_vehicleSystem->OnAfterWorldDetach();
 
+    // Loading a save / dying unloads every character with the world while the connection stays up. Forget them (their
+    // game entities are gone); once the player is back in the world, ShouldAutoConnect asks the server to spawn us
+    // again, and the server sends everyone else's characters again.
+    if (Core::Container::Get<NetworkService>()->IsConnected())
+    {
+        int count = 0;
+        each([&count](flecs::entity aEntity, EntityComponent&) { aEntity.destruct(); ++count; });
+        each([&count](flecs::entity aEntity, SpawningComponent&) { aEntity.destruct(); ++count; });
+        spdlog::info("[Spawn] world unloaded while connected: forgot {} remote entities; will respawn when back in game",
+                     count);
+    }
+    m_remotePlayers.clear();
+    m_spawnStarted.clear();
     m_remotePlayerId = std::nullopt;
 
     IGameSystem::OnAfterWorldDetach();
@@ -323,10 +336,15 @@ void NetworkWorldSystem::HandleCharacterLoad(const PacketEvent<server::NotifyCha
 
     const Red::Quaternion rotation{quat.x, quat.y, quat.z, quat.w};
 
+    // Items arrive as "0x<64-bit TweakDB id>" (current clients) or as a record name (older ones).
     auto equipment = Red::DynArray<Red::TweakDBID>(this->GetAllocator());
-    for (auto item : aMessage.get_equipment())
+    for (const auto& item : aMessage.get_equipment())
     {
-        equipment.EmplaceBack(item);
+        const std::string text = item.c_str();
+        if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
+            equipment.EmplaceBack(Red::TweakDBID(std::strtoull(text.c_str() + 2, nullptr, 16)));
+        else if (!text.empty())
+            equipment.EmplaceBack(Red::TweakDBID(std::string_view(text)));
     }
 
     auto ccstate = aMessage.get_ccstate();
@@ -369,7 +387,7 @@ std::optional<Red::Vector4> NetworkWorldSystem::GetRemotePlayerPosition(uint64_t
     if (!object || !object->transformComponent)
         return std::nullopt;
 
-    const auto& position = object->transformComponent->localTransform.Position;
+    const auto& position = object->transformComponent->worldTransform.Position;
     const auto v = position.AsVector3();
     return Red::Vector4{v.X, v.Y, v.Z, 1.f};
 }
@@ -385,7 +403,7 @@ std::optional<Red::Vector4> NetworkWorldSystem::GetLocalPlayerPosition() const
     if (!player || !player->transformComponent)
         return std::nullopt;
 
-    const auto v = player->transformComponent->localTransform.Position.AsVector3();
+    const auto v = player->transformComponent->worldTransform.Position.AsVector3();
     return Red::Vector4{v.X, v.Y, v.Z, 1.f};
 }
 
@@ -532,7 +550,7 @@ void NetworkWorldSystem::UpdatePlayerLocation() const
     }
     else
     {
-        const auto cEntityPosition = puppet->transformComponent->localTransform.Position.AsVector3();
+        const auto cEntityPosition = puppet->transformComponent->worldTransform.Position.AsVector3();
         const auto cEntityRotation = eulerAngles(Game::ToGlm(puppet->transformComponent->worldTransform.Orientation));
         const auto* pMoveComponent = Game::Compat::GetMoveComponent(puppet);
         float speed = pMoveComponent ? pMoveComponent->speed.Magnitude() : 0.f;
@@ -720,7 +738,15 @@ bool NetworkWorldSystem::ShouldAutoConnect()
     App::Overlay::SetMainMenuVisible(false);
     App::SteamLobby::Get().SetActivity("loading", false);
     App::SteamLobby::Get().SetLocalState("ingame");
-    return Settings::Get().autoConnect && !Core::Container::Get<NetworkService>()->IsConnected();
+
+    const auto network = Core::Container::Get<NetworkService>();
+    if (network->IsConnected() && !m_remotePlayerId)
+    {
+        spdlog::info("[Spawn] back in the world while connected: respawning my character");
+        network->RequestSpawn();
+        return false;
+    }
+    return Settings::Get().autoConnect && !network->IsConnected();
 }
 
 void NetworkWorldSystem::Disconnect()

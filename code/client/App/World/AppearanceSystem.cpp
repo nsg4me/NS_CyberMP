@@ -47,13 +47,16 @@ Red::DynArray<Red::TweakDBID> AppearanceSystem::GetEntityItems(Red::EntityID & e
 Vector<String> AppearanceSystem::GetPlayerItems(Red::Handle<Red::GameObject> player)
 {
     auto equipment = Vector<String>();
-    Red::DynArray<Red::CString> items;
+    Red::DynArray<Red::TweakDBID> items;
     Red::CallVirtual(this, "GetPlayerItems", items);
-    for (auto item : items)
+    for (const auto& item : items)
     {
-        spdlog::info("Getting: {}", item.c_str());
-        equipment.push_back(item.c_str());
+        // "0x<hex>": the 64-bit TweakDB id, understood by every client (see ParseItemId)
+        const auto text = fmt::format("0x{:016X}", item.value);
+        spdlog::info("[Appearance] my worn item {}", text);
+        equipment.push_back(text.c_str());
     }
+    spdlog::info("[Appearance] sending {} worn items", equipment.size());
     return equipment;
 }
 

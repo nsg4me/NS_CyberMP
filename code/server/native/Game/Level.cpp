@@ -193,6 +193,29 @@ void Level::HandleSpawnCharacterRequest(PacketEvent<client::SpawnCharacterReques
         rot += glm::vec3(0, 0, 3.1415);
     }
 
+    // Spawning again on the same connection (the player loaded a save or respawned): replace the old character and
+    // drop the vehicles they had, so nobody keeps seeing a frozen copy.
+    if (pComponent->Puppet && pComponent->Puppet.is_alive())
+    {
+        std::vector<flecs::entity> stale;
+        player.children([&stale](flecs::entity aChild) {
+            if (aChild.has<VehicleComponent>())
+                stale.push_back(aChild);
+        });
+        spdlog::info("[Spawn] '{}' respawns: removing old character {:x} and {} vehicle(s)", pComponent->Username.c_str(),
+                     pComponent->Puppet.id(), stale.size());
+        const auto oldPuppet = pComponent->Puppet;
+        ServerDiagnostics::Entities.erase(oldPuppet.id());
+        Remove(oldPuppet);
+        for (auto vehicle : stale)
+            Remove(vehicle);
+        // Removing entities can move component storage: look the player component up again.
+        pComponent = player.get_mut<PlayerComponent>();
+        if (!pComponent)
+            return;
+        pComponent->Puppet = flecs::entity{};
+    }
+
     pComponent->Puppet = GetWorld()->entity()
         .child_of(player)
         .set<MovementComponent>({pos, rot, {}})
@@ -408,9 +431,22 @@ server::NotifyCharacterLoad Level::Serialize(flecs::entity aEntity) noexcept
         message.set_rotation(pMovementComponent->Rotation.z);
     }
 
+    // A player's own character: whose it is, so clients can show the right name, colour and nameplate. (Player
+    // characters never got a CharacterComponent, so this is checked through the owning player.)
+    if (const auto owner = aEntity.parent())
+    {
+        if (auto* pPlayer = owner.get<PlayerComponent>(); pPlayer && pPlayer->Puppet == aEntity)
+        {
+            message.set_is_player(true);
+            message.set_username(pPlayer->Username.c_str());
+            message.set_steam_id(pPlayer->SteamId);
+        }
+    }
+
     if (auto* pCharacterComponent = aEntity.get<CharacterComponent>())
     {
-        message.set_is_player(pCharacterComponent->IsPlayerPuppet);
+        if (pCharacterComponent->IsPlayerPuppet)
+            message.set_is_player(true);
 
         // Whose character this is, so clients can show the right name and party colour.
         if (pCharacterComponent->IsPlayerPuppet)

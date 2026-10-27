@@ -233,7 +233,9 @@ private final func TryTrackQuestOrSetWaypoint() -> Void {
     }
     let mappinSystem = GameInstance.GetMappinSystem(this.GetPlayerControlledObject().GetGame());
     let tracked = mappinSystem.GetMappin(mappinSystem.GetManuallyTrackedMappinID());
-    if IsDefined(tracked) && Equals(tracked.GetVariant(), gamedataMappinVariant.CustomPositionVariant) {
+    // (not when following a friend's shared waypoint: that one is theirs)
+    if IsDefined(tracked) && Equals(tracked.GetVariant(), gamedataMappinVariant.CustomPositionVariant)
+        && system.GetAppearanceSystem().PartyPingSlot(tracked.GetNewMappinID()) < 0 {
         system.SharePing(tracked.GetWorldPosition());
     }
 }
