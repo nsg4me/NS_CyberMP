@@ -25,6 +25,16 @@ Where the project stands, for picking work up in a new session. Keep this short 
 Steam-relay hosting (Linux host, Windows guest), lobby/party UI, auto-connect, spawn of remote characters, chat,
 map markers, launcher install/update flow.
 
+## Findings from the 2026-10-27 test (fixed in b8341c3)
+
+Float tick math froze interpolation; loading/dying while connected lost the server character; passengers sent
+(0,0,0); items sent as empty names; player characters serialized without owner name/SteamID.
+
+Still open: remote characters look like the *local* player. `[Appearance] 0 customization keys`: the 2.5 vtable
+slots of gameuiCharacterCustomizationState (GetHead/Body/ArmsCustomization, `Game/Compat.h`) are unverified and
+disabled, so no face/body keys are applied and the Muppet keeps the local V's look. Needs Cyberpunk2077.exe 2.5
+(3.0.88.46235) disassembly to find the slots.
+
 ## Open problems (as of 0.2.0)
 
 1. Remote characters barely move. Suspects: movement controller never attached in 2.5 (idle-controller hook hash
