@@ -46,6 +46,10 @@ struct NetworkService final
     entt::dispatcher& GetDispatcher() { return m_dispatcher; }
     const server::Settings& GetServerSettings() const { return m_settings; }
 
+    // Asks the server to (re)create our character from the current player: after authenticating, and again after
+    // loading a save / respawning while still connected (the old character is replaced).
+    void RequestSpawn();
+
     TP_NOCOPYMOVE(NetworkService);
 
 protected:
@@ -58,10 +62,6 @@ protected:
     void OnGameUpdate(RED4ext::CGameApplication* apApp) override;
 
     void HandleAuthentication(const PacketEvent<server::AuthenticationResponse>& aResponse);
-
-    // Asks the server to (re)create our character from the current player: after authenticating, and again after
-    // loading a save / respawning while still connected (the old character is replaced).
-    void RequestSpawn();
 
     static ScratchAllocator& GetScratch();
 
