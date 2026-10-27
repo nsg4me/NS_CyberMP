@@ -73,3 +73,14 @@ the previous game session), the newest crash dump, the launcher/server log, RED4
   game launch option `--debug-mode:1` (and `--debug-mode:0` forces it off); it is otherwise remembered in
   `mod/settings.json`.
 - Crashes write the faulting module and call stack into `CyberpunkMP.log` and a `.dmp` file into `mod/crashes/`.
+
+## In-game options and party tools
+
+- **Mod Settings > NS-CyberMP** (pause menu or title screen): nameplates and their distance, map markers, shared
+  waypoints, party panels, info panel, join/leave messages, ping indicator, chat opacity/size, debug mode. The launcher
+  installs Mod Settings with the other requirements.
+- **Pause menu:** the party list shows what everyone is doing and how far away they are; the info panel shows your
+  connection, version and where the log is.
+- **World map:** select a friend's marker and set a waypoint to follow them. Setting your own waypoint on the map shows
+  it to the whole party in your colour for two minutes.
+- When your clothing/item mods differ from the host's, you get a message on joining and the list goes to the log.
