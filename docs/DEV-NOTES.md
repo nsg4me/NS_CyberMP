@@ -30,10 +30,11 @@ map markers, launcher install/update flow.
 Float tick math froze interpolation; loading/dying while connected lost the server character; passengers sent
 (0,0,0); items sent as empty names; player characters serialized without owner name/SteamID.
 
-Still open: remote characters look like the *local* player. `[Appearance] 0 customization keys`: the 2.5 vtable
-slots of gameuiCharacterCustomizationState (GetHead/Body/ArmsCustomization, `Game/Compat.h`) are unverified and
-disabled, so no face/body keys are applied and the Muppet keeps the local V's look. Needs Cyberpunk2077.exe 2.5
-(3.0.88.46235) disassembly to find the slots.
+Remote characters looked like the *local* player (`[Appearance] 0 customization keys`): the customization getters
+were disabled as unverified. Verified against Cyberpunk2077.exe 3.0.88.46235 and enabled (same slots 0x190/0x1A0/
+0x1B0). How: string "gameuiCharacterCustomizationState" -> its RTTI registration -> the TTypedClass vtable stored
+into the type object -> ConstructCls (+0xD8) -> the class constructor -> instance vtable 0x324EB28 (image RVA).
+Scripts for this live in the session scratchpad (`exe/xr.py` string xrefs, `vt.py` vtable dump, `dz.py` disasm).
 
 ## Open problems (as of 0.2.0)
 

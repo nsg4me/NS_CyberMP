@@ -167,9 +167,10 @@ inline bool IsBodyGenderMale(Red::game::ui::CharacterCustomizationState* apState
     return male;
 }
 
-// [VERIFY] Native virtuals of gameuiICharacterCustomizationState that collect the appearance keys for a body part.
-// 2.2x slots: GetHead 0x190, GetBody 0x1A0, GetArms 0x1B0. 2.5 grew the state (cyberware customization), so new
-// virtuals may have been inserted before these.
+// [verified] Native virtuals of gameuiCharacterCustomizationState that collect the appearance keys for a body part,
+// checked in the 2.5 executable (3.0.88.46235): the class vtable is set in its constructor, and the slots below are
+// (this, CName group, bool isTPP, DynArray<Key>& out) -> bool, reading the head / body / arms group lists at
+// +0x70 / +0x80 / +0x90 and appending 0x10-byte keys. Same slots as 2.2x (each is followed by an identical-code twin).
 constexpr uintptr_t CCState_GetHeadCustomization = 0x190;
 constexpr uintptr_t CCState_GetBodyCustomization = 0x1A0;
 constexpr uintptr_t CCState_GetArmsCustomization = 0x1B0;
@@ -180,18 +181,11 @@ using GetCustomization_t = bool (*)(Red::game::ui::CharacterCustomizationState*,
 inline bool GetCustomization(uintptr_t aSlot, Red::game::ui::CharacterCustomizationState* apState, Red::CName aGroup,
                              bool aIsTPP, Red::DynArray<EntityAppearanceChangeParameter::Key>& aKeys)
 {
-#ifdef CPMP_UNVERIFIED_OFFSETS
+    if (!apState)
+        return false;
     auto vft = *reinterpret_cast<uintptr_t*>(apState);
     auto func = *reinterpret_cast<GetCustomization_t*>(vft + aSlot);
     return func(apState, aGroup, aIsTPP, aKeys);
-#else
-    (void)aSlot;
-    (void)apState;
-    (void)aGroup;
-    (void)aIsTPP;
-    (void)aKeys;
-    return false;
-#endif
 }
 // ---------------------------------------------------------------------------------------------------------------------
 // UI
