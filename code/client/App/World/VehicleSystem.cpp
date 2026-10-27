@@ -17,6 +17,11 @@
 #include "App/Components/InterpolationComponent.h"
 
 
+// called from vehicle::actions::DriveAction::OnStart
+static Core::RawFunc<4039776020UL, void (*)(Red::vehicle::BaseObject*, bool)> SetIsPlayerControlled;
+static Core::RawFunc<1620777158UL, void (*)(Red::vehicle::BaseObject*, uint32_t)> SetFlags;
+static Core::RawFunc<1585713002UL, void (*)(Red::vehicle::BaseObject*, bool)> SetKinematic;
+
 void VehicleSystem::OnWorldAttached(RED4ext::world::RuntimeScene* aScene)
 {
     m_ready = true;
@@ -29,6 +34,8 @@ void VehicleSystem::OnAfterWorldDetach()
     // The world (and every vehicle in it) is gone
     m_vehicleRemoteId = std::nullopt;
     m_vehicleGameId = std::nullopt;
+    m_occupiedGameId = std::nullopt;
+    m_sharedVehicles.clear();
     m_pendingMounts.clear();
 }
 
@@ -36,6 +43,8 @@ void VehicleSystem::OnDisconnected()
 {
     m_vehicleRemoteId = std::nullopt;
     m_vehicleGameId = std::nullopt;
+    m_occupiedGameId = std::nullopt;
+    m_sharedVehicles.clear();
 }
 
 void VehicleSystem::OnInitialize(const RED4ext::JobHandle& aJob)
@@ -90,6 +99,7 @@ void VehicleSystem::OnVehicleEnter(Red::EntityID aVehicle, const Red::TweakDBID&
                      serverVehicle.id());
 
         m_vehicleGameId = std::nullopt;
+        m_occupiedGameId = aVehicle;
     }
     else
     {
@@ -117,6 +127,7 @@ void VehicleSystem::OnVehicleExit()
                  m_vehicleRemoteId ? std::to_string(*m_vehicleRemoteId) : std::string("-"));
     m_vehicleGameId = std::nullopt;
     m_vehicleRemoteId = std::nullopt;
+    m_occupiedGameId = std::nullopt;
     App::SteamLobby::Get().SetActivity("vehicle", false);
 
     const auto pNetworkService = Core::Container::Get<NetworkService>();
@@ -206,6 +217,14 @@ bool VehicleSystem::HandleVehicleEnterMessage(const PacketEvent<server::NotifyVe
             spdlog::info("[Vehicle]   vehicle is in the world: seating them now");
             DoMount(character, entity.get<EntityComponent>()->Id, sit);
         }
+        else if (const auto shared = m_sharedVehicles.find(aMessage.get_vehicle_id()); shared != m_sharedVehicles.end())
+        {
+            // One of our cars that we shared and left: it now follows the other player's driving here.
+            spdlog::info("[Vehicle]   it is our shared car (game id {}): it now follows their driving",
+                         shared->second.hash);
+            worldSystem->make_alive(aMessage.get_vehicle_id()).emplace<EntityComponent>(shared->second, true, nullptr);
+            DoMount(character, shared->second, sit);
+        }
         else
         {
             const auto vehicle = worldSystem->GetEntityIdByServerId(aMessage.get_vehicle_id());
@@ -283,7 +302,29 @@ bool VehicleSystem::HandleVehicleControlMessage(const PacketEvent<server::Notify
                  aMessage.get_vehicle_id(), m_vehicleRemoteId ? std::to_string(*m_vehicleRemoteId) : std::string("-"),
                  m_vehicleGameId ? std::to_string(m_vehicleGameId->hash) : std::string("none: positions will NOT be sent"));
     m_vehicleRemoteId = aMessage.get_vehicle_id();
+
+    // Took the wheel of a shared vehicle: it was following the network (kinematic, not player-controlled) here.
+    // Give it back to the local player and send its position from now on.
+    if (!m_vehicleGameId && m_occupiedGameId)
+    {
+        m_vehicleGameId = m_occupiedGameId;
+        const auto worldSystem = Red::GetGameSystem<NetworkWorldSystem>();
+        if (auto vehicle = Red::Cast<Red::vehicle::BaseObject>(worldSystem->GetEntity(*m_vehicleGameId)))
+        {
+            SetKinematic(vehicle, false);
+            SetIsPlayerControlled(vehicle, true);
+            spdlog::info("[Vehicle]   took control of shared vehicle game id {}: physics back to local driving",
+                         m_vehicleGameId->hash);
+        }
+    }
+    if (m_vehicleGameId)
+        m_sharedVehicles[aMessage.get_vehicle_id()] = *m_vehicleGameId;
     return true;
+}
+
+bool VehicleSystem::IsControlledHere(uint64_t aServerId) const
+{
+    return m_vehicleRemoteId && *m_vehicleRemoteId == aServerId;
 }
 
 void VehicleSystem::DoMount(flecs::entity aCharacter, Red::EntityID aVehicle, Red::CName aSit)
@@ -311,12 +352,6 @@ void VehicleSystem::DoMount(flecs::entity aCharacter, Red::EntityID aVehicle, Re
 
     if (!m_vehicleGameId || *m_vehicleGameId != aVehicle)
     {
-        // called from vehicle::actions::DriveAction::OnStart
-        // static Core::RawFunc<4018412273UL, void (*)(Red::move::Component *, IMoveController &)> AttachLocomotionController
-        static Core::RawFunc<4039776020UL, void (*)(Red::vehicle::BaseObject*, bool)> SetIsPlayerControlled;
-        static Core::RawFunc<1620777158UL, void (*)(Red::vehicle::BaseObject*, uint32_t)> SetFlags;
-        static Core::RawFunc<1585713002UL, void (*)(Red::vehicle::BaseObject*, bool)> SetKinematic;
-
         // AttachLocomotionController(component, controller);
         SetIsPlayerControlled(vehicle, false);
         // turn on engine

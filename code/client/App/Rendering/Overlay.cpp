@@ -457,9 +457,15 @@ void DrawNameplates(float aScale)
     if (!me)
         return;
 
-    Red::Handle<Red::IGameSystem> camera;
-    if (!Red::CallStatic("ScriptGameInstance", "GetCameraSystem", camera) || !camera)
+    // The camera system through the game instance (GameInstance.GetCameraSystem needs a GameInstance argument).
+    static const auto* s_cameraType = Red::CRTTISystem::Get()->GetClass("gameICameraSystem");
+    auto* camera = s_cameraType ? Red::CGameEngine::Get()->framework->gameInstance->GetSystem(s_cameraType) : nullptr;
+    if (!camera)
+    {
+        if (SyncDiagnostics::Every("nameplate-no-camera", std::chrono::seconds(30)))
+            spdlog::warn("[Overlay] nameplates: camera system not found");
         return;
+    }
     Red::Vector4 forward{};
     Red::CallVirtual(camera, "GetActiveCameraForward", forward);
 

@@ -13,6 +13,9 @@
 // Friend: opens a local UDP port that the game connects to; everything sent there goes to the host's SteamID.
 namespace App
 {
+// Set when the game shuts the Steam API down (on exit). Steam calls after that crash inside the unloaded client.
+inline std::atomic<bool> GSteamShutDown{false};
+
 class SteamRelay
 {
 public:

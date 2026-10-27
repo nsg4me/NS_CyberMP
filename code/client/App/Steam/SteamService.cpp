@@ -323,7 +323,8 @@ void SteamService::OnShutdown()
 {
     SteamRelay::Get().Stop();
 
-    if (m_attached)
+    // Plugin unload happens after the game has shut Steam down: calling into it then crashed the game on exit.
+    if (m_attached && !GSteamShutDown)
     {
         if (s_steam.unregisterCallback && s_joinCallback.service)
             s_steam.unregisterCallback(&s_joinCallback);

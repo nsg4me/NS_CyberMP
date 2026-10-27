@@ -18,6 +18,8 @@ struct VehicleSystem : RED4ext::IScriptable
 
     std::optional<uint64_t> GetVehicleRemoteId() const;
     std::optional<Red::EntityID> GetVehicleGameId() const;
+    // True for the shared vehicle this player drives (its position is sent from here, not interpolated).
+    bool IsControlledHere(uint64_t aServerId) const;
 
 protected:
 
@@ -40,6 +42,10 @@ private:
     Red::CBaseFunction* m_pExitVehicle;
     std::optional<uint64_t> m_vehicleRemoteId;
     std::optional<Red::EntityID> m_vehicleGameId;
+    // The shared (networked) vehicle we sit in as a passenger; becomes m_vehicleGameId if we take the wheel.
+    std::optional<Red::EntityID> m_occupiedGameId;
+    // Our own cars that we shared (server id -> game id): when someone else drives one, it follows the network here.
+    Core::Map<uint64_t, Red::EntityID> m_sharedVehicles;
 };
 
 RTTI_DEFINE_CLASS(VehicleSystem, { 

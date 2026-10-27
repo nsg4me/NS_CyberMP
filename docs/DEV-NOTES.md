@@ -36,6 +36,18 @@ were disabled as unverified. Verified against Cyberpunk2077.exe 3.0.88.46235 and
 into the type object -> ConstructCls (+0xD8) -> the class constructor -> instance vtable 0x324EB28 (image RVA).
 Scripts for this live in the session scratchpad (`exe/xr.py` string xrefs, `vt.py` vtable dump, `dz.py` disasm).
 
+## Findings from the 2026-10-27 evening test
+
+Movement works. Fixed after it: GiveItem's count parameter is "amount" in 2.5 (clothes never given); world-unload
+crash at exe+0x71caad (an entity freed while still in the world) - suspected the appearance-changer callback
+capturing an entity handle (now captureless, keys kept alive); exit crash in SteamService::OnShutdown calling Steam
+after SteamAPI_Shutdown; nameplates never drew (GameInstance.GetCameraSystem needs an argument; now via the game
+instance); street-car duplicates (local copy of the same car next to the shared one: hidden); taking the wheel of a
+shared car (control handover, physics back to local, no interpolation for the car we drive, owner's client follows
+the new driver).
+
+Not synced by design so far: NPCs and traffic (each game runs its own) - backlog item 2.
+
 ## Open problems (as of 0.2.0)
 
 1. Remote characters barely move. Suspects: movement controller never attached in 2.5 (idle-controller hook hash

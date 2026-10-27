@@ -115,6 +115,7 @@ SteamAPIShutdown_t s_realSteamShutdown = nullptr;
 
 void HookedSteamShutdown()
 {
+    App::GSteamShutDown = true;
     App::SteamRelay::Get().Stop();
     if (s_realSteamShutdown)
         s_realSteamShutdown();

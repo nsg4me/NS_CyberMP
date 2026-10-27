@@ -39,7 +39,34 @@ public native class VehicleSystem extends IScriptable {
 
     private cb func OnEntityAttached(event: ref<EntityLifecycleEvent>) {
         LogChannel(n"DEBUG", "[VehicleSystem] OnEntityAttached");
+        let vehicle = event.GetEntity() as VehicleObject;
+        if IsDefined(vehicle) {
+            this.HideLocalDuplicates(vehicle);
+        }
         this.OnVehicleReady(event.GetEntity().GetEntityID());
+    }
+
+    // A friend's car usually comes from the street, where this game has its own copy of the same parked car: that
+    // copy would sit next to (or inside) the shared one. Move local copies of the same model within a few metres out
+    // of the way (far below the street), unless we are in it.
+    private func HideLocalDuplicates(networked: ref<VehicleObject>) -> Void {
+        let nearby = networked.GetEntitiesAroundObject(10.0);
+        let position = networked.GetWorldPosition();
+        let hidden = 0;
+        for entity in nearby {
+            let other = entity as VehicleObject;
+            if IsDefined(other) && NotEquals(other.GetEntityID(), networked.GetEntityID())
+                && !other.HasTag(n"CyberpunkMP.Vehicle")
+                && Equals(other.GetRecordID(), networked.GetRecordID())
+                && !other.IsPlayerMounted()
+                && Vector4.Distance(other.GetWorldPosition(), position) < 8.0 {
+                let away = other.GetWorldPosition();
+                away.Z -= 500.0;
+                GameInstance.GetTeleportationFacility(networked.GetGame()).Teleport(other, away, other.GetWorldOrientation().ToEulerAngles());
+                hidden += 1;
+            }
+        }
+        MpLog("Vehicle", "shared vehicle attached: " + IntToString(ArraySize(nearby)) + " entities nearby, hid " + IntToString(hidden) + " local copies");
     }
 
     public func EnterVehicle(character_id: EntityID, vehicle_id: EntityID, sit_position: CName) -> Bool {

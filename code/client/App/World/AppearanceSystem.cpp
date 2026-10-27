@@ -17,6 +17,10 @@
 #include <RED4ext/Containers/StaticArray.hpp>
 #include "RED4ext/Scripting/Natives/Generated/game/PuppetPS.hpp"
 
+// Appearance keys handed to the game's appearance changer, kept alive until the next world: the changer is
+// asynchronous and only gets a pointer range into them.
+static std::unordered_map<uint64_t, Red::DynArray<Game::Compat::EntityAppearanceChangeParameter::Key>> s_appearanceKeys; // node-based: buffers never move
+
 AppearanceSystem::AppearanceSystem()
 {
 
@@ -30,6 +34,8 @@ void AppearanceSystem::OnInitialize(const RED4ext::JobHandle& aJob)
 void AppearanceSystem::OnWorldAttached(RED4ext::world::RuntimeScene* aScene)
 {    
     spdlog::info("[AppearanceSystem] OnWorldAttached");
+    // The previous world (and any appearance change still reading these) is gone by now
+    s_appearanceKeys.clear();
     Red::CallVirtual(this, "OnWorldAttached");
 }
 
@@ -157,14 +163,16 @@ void AddItems(Red::Handle<Red::game::Object> & object, Red::DynArray<Red::TweakD
         auto renderingPlane = Red::ERenderingPlane::RPl_Scene;
 
         bool given = false;
+        // 2.5 names the count "amount" (2.2x: "quantity"); both are passed, the one the game declares is used.
         Game::CallNamed(system, "GiveItem", given,
-                        {Game::Arg("obj", object), Game::Arg("itemID", itemID), Game::Arg("quantity", quantity)});
+                        {Game::Arg("obj", object), Game::Arg("itemID", itemID), Game::Arg("amount", quantity),
+                         Game::Arg("quantity", quantity)});
         if (given)
         {
             bool added = false;
             Game::CallNamed(system, "AddItemToSlot", added,
                             {Game::Arg("obj", object), Game::Arg("slotID", placementSlot), Game::Arg("itemID", itemID),
-                             Game::Arg("renderingPlane", renderingPlane),
+                             Game::Arg("plane", renderingPlane), Game::Arg("renderingPlane", renderingPlane),
                              Game::Arg("garmentAppearanceName", appearanceName)});
             if (!added)
             {
@@ -348,15 +356,22 @@ bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
 
         auto changer = Red::GetRuntimeSystem<Red::world::RuntimeSystemEntityAppearanceChanger>();
         Red::WeakHandle<Red::game::Object> weakHandle = object;
+
+        auto& storedKeys = s_appearanceKeys[object->entityID.hash];
+        storedKeys = std::move(keys);
+
         Span<Game::Compat::EntityAppearanceChangeParameter::Key> old_keys = {
             .start = nullptr,
             .end = nullptr
         };
         Span<Game::Compat::EntityAppearanceChangeParameter::Key> new_keys = {
-            .start = keys.Data(),
-            .end = keys.Data() + keys.Size()
+            .start = storedKeys.Data(),
+            .end = storedKeys.Data() + storedKeys.Size()
         };
-        const std::function<void (void)> callback = [stateHandle = std::move(stateHandle), object = std::move(object)](void) 
+        // Captures nothing: the game keeps its own copy of this callback and may not copy/destroy it the way
+        // std::function expects; a captured entity handle then had its reference count dropped one time too many,
+        // freeing a character the world still used (crash when the world unloaded).
+        const std::function<void (void)> callback = [](void)
         {
             // AddItems(object, items, stateHandle.instance);
 
@@ -405,7 +420,7 @@ bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
             // // Red::CallVirtual(apprSystem, "AddBodyParts", object, stateHandle.instance->isBodyGenderMale);
             
         };
-        spdlog::info("[Appearance]   {} customization keys", keys.Size());
+        spdlog::info("[Appearance]   {} customization keys", storedKeys.Size());
         ScheduleSynchronizedAppearanceChanges(changer, weakHandle, &old_keys, &new_keys, callback, 0);
     }
     else

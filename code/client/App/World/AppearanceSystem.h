@@ -27,6 +27,7 @@ struct AppearanceSystem : RED4ext::IScriptable
 private:
     Core::Map<Red::EntityID, Red::DynArray<Red::TweakDBID>> m_playerEquipment;
     Core::Map<Red::EntityID, Vector<uint8_t>> m_playerCcstate;
+
 };
 
 RTTI_DEFINE_CLASS(AppearanceSystem, { 

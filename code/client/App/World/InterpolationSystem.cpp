@@ -94,6 +94,9 @@ void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComp
     if (aEntityComponent.IsVehicle)
     {
         const auto pSystem = Red::GetGameSystem<NetworkWorldSystem>();
+        // We drive it: our own position updates must not be overwritten by the echo of older ones
+        if (pSystem->GetVehicleSystem() && pSystem->GetVehicleSystem()->IsControlledHere(aEntity.id()))
+            return;
         const auto vehicle = Red::Cast<Red::vehicle::BaseObject>(pSystem->GetEntity(aEntityComponent.Id));
         if (vehicle)
         {
