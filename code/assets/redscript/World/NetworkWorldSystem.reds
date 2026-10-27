@@ -12,12 +12,26 @@ public native class NetworkWorldSystem extends IGameSystem {
     public native func Log(category: String, message: String) -> Void;
     public native func IsDebugMode() -> Bool;
     public native func SetDebugMode(enabled: Bool) -> Void;
+    public native func SetOption(name: String, value: Float) -> Void;
+    public native func GetOption(name: String) -> Float;
+    public native func ReportActivity(flag: String, active: Bool) -> Void;
+    public native func SharePing(position: Vector4) -> Void;
+    public native func GetSlotColor(slot: Int32) -> Vector4;
     public native func GetPlayerColor(entityId: EntityID) -> Vector4;
     public native func GetEntityIdByServerId(serverId: Uint64) -> EntityID;
     public native func GetAppearanceSystem() -> ref<AppearanceSystem>;
     public native func GetChatSystem() -> ref<ChatSystem>;
     public native func GetInterpolationSystem() -> ref<InterpolationSystem>;
     public native func GetVehicleSystem() -> ref<VehicleSystem>;
+
+    // Called by the mod (party lobby) when a friend shares a map waypoint / when it expires.
+    public func ShowPartyPing(slot: Int32, position: Vector4) -> Void {
+        this.GetAppearanceSystem().ShowPartyPing(slot, position);
+    }
+
+    public func ClearPartyPing(slot: Int32) -> Void {
+        this.GetAppearanceSystem().ClearPartyPing(slot);
+    }
 
     public func OnConnected() -> Void {
         // let evt: ref<ConnectedToServer>;

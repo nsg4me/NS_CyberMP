@@ -12,7 +12,10 @@ export const REQUIREMENTS = [
   { id: 'codeware', name: 'Codeware', repo: 'psiberx/cp2077-codeware', tag: 'v1.21.0', keyword: 'codeware', files: ['red4ext/plugins/Codeware/Codeware.dll'] },
   { id: 'archivexl', name: 'ArchiveXL', repo: 'psiberx/cp2077-archive-xl', tag: 'v1.28.0', keyword: 'archivexl', files: ['red4ext/plugins/ArchiveXL/ArchiveXL.dll'] },
   { id: 'tweakxl', name: 'TweakXL', repo: 'psiberx/cp2077-tweak-xl', tag: 'v1.12.0', keyword: 'tweakxl', files: ['red4ext/plugins/TweakXL/TweakXL.dll'] },
-  { id: 'inputloader', name: 'Input Loader', repo: 'jackhumbert/cyberpunk2077-input-loader', tag: 'v0.2.3', keyword: 'input_loader', files: ['red4ext/plugins/input_loader/input_loader.dll'] }
+  { id: 'inputloader', name: 'Input Loader', repo: 'jackhumbert/cyberpunk2077-input-loader', tag: 'v0.2.3', keyword: 'input_loader', files: ['red4ext/plugins/input_loader/input_loader.dll'] },
+  // The in-game "NS-CyberMP" options page. Its release also has a packed-*.zip bundling RED4ext etc.; the keyword picks
+  // the mod-only mod_settings_<tag>.zip so the pinned versions above are not overwritten.
+  { id: 'modsettings', name: 'Mod Settings', repo: 'jackhumbert/mod_settings', tag: 'v0.2.27', keyword: 'mod_settings', files: ['red4ext/plugins/mod_settings'] }
 ]
 
 const VC_REDIST_URL = 'https://aka.ms/vc14/vc_redist.x64.exe'
@@ -72,7 +75,7 @@ async function releaseZip (req) {
   if (!res.ok) throw new Error(`GitHub release ${req.repo} ${req.tag} not found (${res.status})`)
   const release = await res.json()
 
-  const zips = (release.assets || []).filter((a) => /\.zip$/i.test(a.name) && !/pdb|debug|symbol|source|cli/i.test(a.name))
+  const zips = (release.assets || []).filter((a) => /\.zip$/i.test(a.name) && !/pdb|debug|symbol|source|cli|packed|requirements/i.test(a.name))
   const asset = zips.find((a) => a.name.toLowerCase().includes(req.keyword)) || zips[0]
   if (!asset) throw new Error(`no zip in ${req.repo} ${req.tag}`)
   return asset

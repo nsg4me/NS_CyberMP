@@ -36,6 +36,28 @@ map markers, launcher install/update flow.
 3. Sandevistan crashes the client: get `[Crash]` lines + dump, and `[Script/Time]` lines just before.
 4. "ItemID creation failed" for remote equipment: `[Appearance]` now names the item (mod only one side has?).
 
-## Next ideas
+## In progress (0.2.2)
 
-- In-game "NS-CyberMP" settings tab (debug mode toggle first; natives `IsDebugMode`/`SetDebugMode` exist).
+Mod Settings page "NS-CyberMP" (`World/ModOptions.reds` -> `Settings::Option`, saved in `mod/settings.json`),
+nameplates + ping dot + pause info panel (`Rendering/Overlay.cpp`), party activity / shared waypoints / content-mod
+comparison through Steam lobby member data (`Steam/SteamLobby.cpp`), follow-a-friend on the world map.
+
+## Backlog after the sync bugs (agreed with Night, 2026-10-27)
+
+1. Combat sync (aim/shoot/melee visuals, weapon in hand) - yes
+2. Shared enemies (kills first, then NPC sync) - yes
+3. Downed + revive - yes. If not revived in time, the downed player cannot respawn until the combat *near them* is over
+   (not just "anyone on the map in combat").
+4. Fast travel together (host travels -> guests get a prompt) - yes
+5. Co-op gigs / NCPD jobs - maybe
+6. Sandevistan rules - Night's design to workshop: the user moves at normal speed and everyone else slows down. If
+   several players use one, the fastest Sandevistan feels normal, slower ones feel the difference, and players without
+   one move as slowly as the fastest Sandevistan's scale.
+7. Full appearance sync - yes, important: currently each player sees the other as *their own* character.
+8. Vehicles fully (all seats, bikes, summoned car for everyone) - yes
+9. Give items / eddies - yes
+10. Weather sync - yes; police heat only when players share a vehicle
+11. Cutscene/braindance handling: hide the other player during your scenes, a Mod Settings toggle, hidden by default
+12. Proximity voice - no
+13. Spectate a friend while dead/loading - yes
+14. Rejoin last party - yes

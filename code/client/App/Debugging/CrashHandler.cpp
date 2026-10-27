@@ -2,6 +2,8 @@
 
 #include <App/Settings.h>
 #include <DbgHelp.h>
+#include <algorithm>
+#include <cctype>
 
 extern std::filesystem::path GCyberpunkMpLocation;
 
@@ -243,6 +245,45 @@ void App::CrashHandler::Install()
                  hooked ? "" : "; could not keep it in front of the game's crash reporter");
 }
 
+const std::vector<std::string>& App::CrashHandler::ContentMods()
+{
+    static std::vector<std::string> s_mods;
+    static bool s_done = false;
+    if (s_done)
+        return s_mods;
+    s_done = true;
+
+    wchar_t exe[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    const auto game = std::filesystem::path(exe).parent_path().parent_path().parent_path();
+
+    const auto collect = [&](const std::filesystem::path& aDir, std::initializer_list<const wchar_t*> aExtensions)
+    {
+        std::error_code ec;
+        for (auto it = std::filesystem::recursive_directory_iterator(aDir, ec);
+             !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+        {
+            if (!it->is_regular_file(ec))
+                continue;
+            for (const auto* extension : aExtensions)
+            {
+                if (_wcsicmp(it->path().extension().c_str(), extension) == 0)
+                {
+                    auto name = std::filesystem::relative(it->path(), game, ec).generic_string();
+                    std::ranges::transform(name, name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    s_mods.push_back(std::move(name));
+                    break;
+                }
+            }
+        }
+    };
+    collect(game / "archive" / "pc" / "mod", {L".archive", L".xl"});
+    collect(game / "mods", {L".archive", L".xl"});
+    collect(game / "r6" / "tweaks", {L".yaml", L".yml", L".tweak"});
+    std::ranges::sort(s_mods);
+    return s_mods;
+}
+
 void App::CrashHandler::LogEnvironment()
 {
     wchar_t exe[MAX_PATH]{};
@@ -272,6 +313,8 @@ void App::CrashHandler::LogEnvironment()
 
     const auto cet = game / "bin" / "x64" / "plugins" / "cyber_engine_tweaks.asi";
     spdlog::info("[Env] Cyber Engine Tweaks: {}", std::filesystem::exists(cet, ec) ? "installed" : "not installed");
+    for (const auto& mod : ContentMods())
+        spdlog::debug("[Env]   content mod: {}", mod);
     spdlog::info("[Env] other mods: {} .archive in archive/pc/mod, {} .reds in r6/scripts, {} tweak files in r6/tweaks, "
                  "{} .archive in mods/",
                  CountFiles(game / "archive" / "pc" / "mod", L".archive"), CountFiles(game / "r6" / "scripts", L".reds"),

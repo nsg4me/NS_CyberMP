@@ -34,6 +34,15 @@ struct Settings
     static void SetDebugMode(bool aEnabled); // saves it and applies the log level now
     static void ApplyLogLevel();
 
+    // Display options (the in-game "NS-CyberMP" Mod Settings page sets these; saved in settings.json so they also apply
+    // on the title screen and without Mod Settings). Booleans are 0/1. Unknown names read as 0.
+    //   partyPanels, toasts, nameplates, nameplateDistance (m), nameplateShowDistance, mapMarkers, pingIndicator,
+    //   infoPanel, partyPings, chatOpacity (0-1), chatScale
+    static float Option(const std::string& acName);
+    static bool Enabled(const std::string& acName) { return Option(acName) >= 0.5f; }
+    static void SetOption(const std::string& acName, float aValue);
+    std::unordered_map<std::string, float> options;
+
     // Set by the launcher's "Host game" (cpmp-session.json): this player runs the server, and friends reach it at
     // publicAddress ("ip:port"), which is advertised to Steam friends as the join address.
     bool host = false;

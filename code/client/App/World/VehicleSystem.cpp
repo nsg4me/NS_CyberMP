@@ -2,6 +2,7 @@
 #include "VehicleSystem.h"
 
 #include "App/Network/NetworkService.h"
+#include "App/Steam/SteamLobby.h"
 #include "RED4ext/Scripting/Natives/Generated/game/Puppet.hpp"
 #include "RED4ext/Scripting/Natives/gameIEntityStubSystem.hpp"
 #include "RED4ext/Scripting/Natives/Generated/game/EntityStubComponentPS.hpp"
@@ -60,6 +61,7 @@ void VehicleSystem::OnVehicleEnter(Red::EntityID aVehicle, const Red::TweakDBID&
 {
     spdlog::info("[Vehicle] I entered vehicle game id {} ({:016x}) seat {} at ({:.1f}, {:.1f}, {:.1f})", aVehicle.hash,
                  aVehicleTdbid.value, aName.ToString(), aPostion.X, aPostion.Y, aPostion.Z);
+    App::SteamLobby::Get().SetActivity("vehicle", true);
     const auto pNetworkService = Core::Container::Get<NetworkService>();
     if (!pNetworkService->IsConnected())
         return;
@@ -111,6 +113,7 @@ void VehicleSystem::OnVehicleExit()
                  m_vehicleRemoteId ? std::to_string(*m_vehicleRemoteId) : std::string("-"));
     m_vehicleGameId = std::nullopt;
     m_vehicleRemoteId = std::nullopt;
+    App::SteamLobby::Get().SetActivity("vehicle", false);
 
     const auto pNetworkService = Core::Container::Get<NetworkService>();
     if (!pNetworkService->IsConnected())

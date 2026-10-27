@@ -71,6 +71,48 @@ public native class AppearanceSystem extends IScriptable {
         }
     }
 
+    // Waypoints shared by party members (one per colour slot 0-3), shown at a fixed spot in their colour.
+    private let m_pingMappins: array<NewMappinID>;
+    private let m_pingSlots: array<Int32>;
+
+    public func ShowPartyPing(slot: Int32, position: Vector4) -> Void {
+        this.ClearPartyPing(slot);
+        let mappinData: MappinData;
+        mappinData.mappinType = t"Mappins.QuestDynamicMappinDefinition";
+        mappinData.variant = gamedataMappinVariant.CustomPositionVariant;
+        mappinData.active = true;
+        mappinData.visibleThroughWalls = true;
+        let id = GameInstance.GetMappinSystem(GetGameInstance()).RegisterMappin(mappinData, position);
+        ArrayPush(this.m_pingMappins, id);
+        ArrayPush(this.m_pingSlots, slot);
+        MpLog("Map", "showing party waypoint for slot " + IntToString(slot));
+    }
+
+    public func ClearPartyPing(slot: Int32) -> Void {
+        let mappinSystem = GameInstance.GetMappinSystem(GetGameInstance());
+        let i = ArraySize(this.m_pingSlots) - 1;
+        while i >= 0 {
+            if this.m_pingSlots[i] == slot {
+                mappinSystem.UnregisterMappin(this.m_pingMappins[i]);
+                ArrayErase(this.m_pingMappins, i);
+                ArrayErase(this.m_pingSlots, i);
+            }
+            i -= 1;
+        }
+    }
+
+    // Colour slot of a shared waypoint marker, or -1 when the marker is not one.
+    public func PartyPingSlot(id: NewMappinID) -> Int32 {
+        let i = 0;
+        while i < ArraySize(this.m_pingMappins) {
+            if this.m_pingMappins[i].value == id.value {
+                return this.m_pingSlots[i];
+            }
+            i += 1;
+        }
+        return -1;
+    }
+
     public func RemoveAllPlayerMappins() -> Void {
         let mappinSystem = GameInstance.GetMappinSystem(GetGameInstance());
         for id in this.m_playerMappins {
@@ -78,6 +120,11 @@ public native class AppearanceSystem extends IScriptable {
         }
         ArrayClear(this.m_playerMappinEntities);
         ArrayClear(this.m_playerMappins);
+        for id in this.m_pingMappins {
+            mappinSystem.UnregisterMappin(id);
+        }
+        ArrayClear(this.m_pingMappins);
+        ArrayClear(this.m_pingSlots);
     }
 
     public func OnWorldAttached() -> Void {

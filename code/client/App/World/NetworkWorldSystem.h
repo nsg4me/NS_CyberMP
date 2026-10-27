@@ -71,6 +71,14 @@ struct NetworkWorldSystem : RED4ext::IGameSystem, Core::HookingAgent, flecs::wor
     void Log(const Red::CString& aCategory, const Red::CString& aMessage);
     bool IsDebugMode() const;
     void SetDebugMode(bool aEnabled);
+    // Mod options (see Settings::Option) from the Mod Settings page, and what scripts need to read back.
+    void SetOption(const Red::CString& aName, float aValue);
+    float GetOption(const Red::CString& aName) const;
+    // Party status flags from scripts: "menu", "scene", "dead".
+    void ReportActivity(const Red::CString& aFlag, bool aActive);
+    // A waypoint the local player placed on the world map, shared with the party.
+    void SharePing(const Red::Vector4& aPosition);
+    Red::Vector4 GetSlotColor(int32_t aSlot) const;
     // Party colour (r, g, b, 1) of a remote player's character, for map markers. Grey when unknown.
     Red::Vector4 GetPlayerColor(Red::EntityID aEntity) const;
     bool IsPlayerReady() const { return m_playerReady; }
@@ -118,6 +126,11 @@ RTTI_DEFINE_CLASS(NetworkWorldSystem, {
     RTTI_METHOD(Log);
     RTTI_METHOD(IsDebugMode);
     RTTI_METHOD(SetDebugMode);
+    RTTI_METHOD(SetOption);
+    RTTI_METHOD(GetOption);
+    RTTI_METHOD(ReportActivity);
+    RTTI_METHOD(SharePing);
+    RTTI_METHOD(GetSlotColor);
     RTTI_METHOD(GetPlayerColor);
     RTTI_METHOD(GetEntityIdByServerId);
     RTTI_METHOD(GetAppearanceSystem);

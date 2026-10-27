@@ -8,4 +8,8 @@ void Install();
 
 // Startup inventory: game version, loaded RED4ext plugins, CET, mod counts. Logged once per session.
 void LogEnvironment();
+
+// Installed content mods that can add items or clothes (archives, tweaks), as sorted lowercase relative paths.
+// Compared with the host's to explain missing clothes. Cached after the first call.
+const std::vector<std::string>& ContentMods();
 }

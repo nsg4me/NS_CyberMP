@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_set>
+
 // The "party": a friends-only Steam lobby (up to 4) created by the host.
 //
 // - Host: creates it when hosting and publishes the connect string and the mod version in the lobby data.
@@ -23,6 +25,8 @@ public:
         bool connected = false;
         std::string version;
         int avatarHandle = 0; // Steam image handle (0 = none yet)
+        std::string activity; // "in game", "paused", "in a vehicle", "in a cutscene", "down", "loading", ...
+        int slot = -1;        // party colour slot (0 = host)
     };
 
     struct Snapshot
@@ -32,6 +36,7 @@ public:
         std::string status; // one line for the party panel
         bool hostInGame = false;
         bool versionMismatch = false;
+        std::string modMismatch; // empty, or a short summary of how this player's content mods differ from the host's
         std::vector<Member> members;
     };
 
@@ -54,6 +59,13 @@ public:
     void SetLocalState(const char* acState);
     void SetLocalConnected(bool aConnected);
 
+    // What the local player is doing, shown to the party. Flags: "loading", "menu" (a game menu is open), "scene",
+    // "dead", "vehicle".
+    void SetActivity(const std::string& acFlag, bool aActive);
+
+    // Share a map position with the party (the waypoint just placed on the world map).
+    void SharePing(float aX, float aY, float aZ);
+
     [[nodiscard]] Snapshot GetSnapshot();
     [[nodiscard]] uint64_t GetLobbyId() const { return m_lobby; }
 
@@ -71,6 +83,9 @@ private:
     void Refresh();
     void PublishLocal();
     void LeaveBecause(const char* acToast);
+    std::string Activity() const;
+    void UpdatePings(const Snapshot& acSnapshot);
+    void CheckMods(uint64_t aHostId);
 
     bool m_available = false;
     bool m_initTried = false;
@@ -87,5 +102,23 @@ private:
     Snapshot m_snapshot;
     std::string m_lastLoggedSummary;
     std::chrono::steady_clock::time_point m_nextRefresh{};
+
+    std::unordered_set<std::string> m_activityFlags;
+    std::string m_publishedActivity;
+
+    uint32_t m_pingSeq = 0;
+    std::string m_localPing; // "seq;x;y;z"
+    struct PingSeen
+    {
+        std::string value;
+        int slot = -1;
+        std::chrono::steady_clock::time_point shown{};
+        bool visible = false;
+    };
+    std::unordered_map<uint64_t, PingSeen> m_pings; // other members' pings by SteamID
+
+    std::string m_modsHash;     // ours
+    std::string m_checkedHostMods; // the host hash we last compared against
+    std::string m_modMismatch;
 };
 } // namespace App

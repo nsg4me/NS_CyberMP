@@ -276,6 +276,7 @@ void NetworkWorldSystem::OnWorldAttached(RED4ext::world::RuntimeScene* aScene)
     m_vehicleSystem->OnWorldAttached(aScene);
 
     m_ready = true;
+    App::SteamLobby::Get().SetActivity("loading", true);
 }
 
 void NetworkWorldSystem::OnAfterWorldDetach()
@@ -288,6 +289,8 @@ void NetworkWorldSystem::OnAfterWorldDetach()
     m_ready = false;
     m_playerReady = false;
     App::Overlay::SetMainMenuVisible(false);
+    for (const auto* flag : {"loading", "menu", "scene", "dead", "vehicle"})
+        App::SteamLobby::Get().SetActivity(flag, false);
 
     m_interpolationSystem->OnAfterWorldDetach();
     m_chatSystem->OnAfterWorldDetach();
@@ -661,6 +664,34 @@ void NetworkWorldSystem::SetDebugMode(bool aEnabled)
     Settings::SetDebugMode(aEnabled);
 }
 
+void NetworkWorldSystem::SetOption(const Red::CString& aName, float aValue)
+{
+    Settings::SetOption(aName.c_str(), aValue);
+}
+
+float NetworkWorldSystem::GetOption(const Red::CString& aName) const
+{
+    return Settings::Option(aName.c_str());
+}
+
+void NetworkWorldSystem::ReportActivity(const Red::CString& aFlag, bool aActive)
+{
+    App::SteamLobby::Get().SetActivity(aFlag.c_str(), aActive);
+    if (std::string_view(aFlag.c_str()) == "menu")
+        App::Overlay::SetInGameMenuVisible(aActive);
+}
+
+void NetworkWorldSystem::SharePing(const Red::Vector4& aPosition)
+{
+    App::SteamLobby::Get().SharePing(aPosition.X, aPosition.Y, aPosition.Z);
+}
+
+Red::Vector4 NetworkWorldSystem::GetSlotColor(int32_t aSlot) const
+{
+    const auto c = App::PartyColours::ForSlot(aSlot);
+    return Red::Vector4{c.r, c.g, c.b, 1.f};
+}
+
 void NetworkWorldSystem::SetPauseMenuVisible(bool aVisible)
 {
     spdlog::info("[Menu] pause/map menu {}", aVisible ? "opened" : "closed");
@@ -687,6 +718,7 @@ bool NetworkWorldSystem::ShouldAutoConnect()
                  Settings::Get().autoConnect ? "on" : "off",
                  Core::Container::Get<NetworkService>()->IsConnected() ? "yes" : "no");
     App::Overlay::SetMainMenuVisible(false);
+    App::SteamLobby::Get().SetActivity("loading", false);
     App::SteamLobby::Get().SetLocalState("ingame");
     return Settings::Get().autoConnect && !Core::Container::Get<NetworkService>()->IsConnected();
 }

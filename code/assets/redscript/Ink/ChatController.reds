@@ -30,6 +30,7 @@ public class ChatController extends inkHUDGameController {
         // get last messages & populate list
 
         this.UpdateInputHints();
+        this.ApplyOptions();
 
         let messageData = new ChatMessageUIEvent();
         messageData.author = "SERVER";
@@ -77,6 +78,21 @@ public class ChatController extends inkHUDGameController {
         inkScrollAreaRef.ScrollVertical(this.m_scrollRef, 1.0);
     }
 
+    // Chat opacity / size from the NS-CyberMP Mod Settings page; fully visible while typing.
+    private func ApplyOptions() -> Void {
+        let system = GameInstance.GetNetworkWorldSystem();
+        let scale = system.GetOption("chatScale");
+        if scale < 0.3 {
+            scale = 1.0;
+        }
+        this.GetRootWidget().SetScale(new Vector2(scale, scale));
+        this.GetRootWidget().SetOpacity(this.m_chatInputOpen ? 1.0 : system.GetOption("chatOpacity"));
+    }
+
+    protected cb func OnNsOptionsChanged(evt: ref<NsOptionsChangedEvent>) -> Bool {
+        this.ApplyOptions();
+    }
+
     private func ShowChatInput(show: Bool) -> Void {
         let blackboardSystem: ref<BlackboardSystem> = GameInstance.GetBlackboardSystem(GetGameInstance());
         let uiBlackboard: ref<IBlackboard> = blackboardSystem.Get(GetAllBlackboardDefs().UIGameData);
@@ -119,6 +135,7 @@ public class ChatController extends inkHUDGameController {
         }
         this.m_chatInputOpen = show;
         this.UpdateInputHints();
+        this.ApplyOptions();
     }
 
     private final func SendChat() -> Void {

@@ -72,6 +72,14 @@ void LoadModSettings(Settings& aSettings)
         std::ifstream in(file);
         const auto json = nlohmann::json::parse(in);
         aSettings.debugMode = json.value("debugMode", false);
+        if (json.contains("options") && json["options"].is_object())
+        {
+            for (const auto& [name, value] : json["options"].items())
+            {
+                if (value.is_number())
+                    aSettings.options[name] = value.get<float>();
+            }
+        }
     }
     catch (const std::exception& e)
     {
@@ -93,6 +101,9 @@ void SaveModSettings(const Settings& aSettings)
     {
     }
     json["debugMode"] = aSettings.debugMode;
+    json["options"] = nlohmann::json::object();
+    for (const auto& [name, value] : aSettings.options)
+        json["options"][name] = value;
     std::ofstream out(file);
     out << json.dump(2);
 }
@@ -123,6 +134,51 @@ std::optional<bool> DebugModeLaunchOption()
     return true; // bare --debug-mode
 }
 } // namespace
+
+static const std::unordered_map<std::string, float>& DefaultOptions()
+{
+    static const std::unordered_map<std::string, float> s_defaults{
+        {"partyPanels", 1.f},   {"toasts", 1.f},      {"nameplates", 1.f},    {"nameplateDistance", 300.f},
+        {"nameplateShowDistance", 1.f}, {"mapMarkers", 1.f}, {"pingIndicator", 1.f}, {"infoPanel", 1.f},
+        {"partyPings", 1.f},    {"chatOpacity", 1.f}, {"chatScale", 1.f}};
+    return s_defaults;
+}
+
+float Settings::Option(const std::string& acName)
+{
+    const auto& settings = Get();
+    if (acName == "debugMode")
+        return settings.debugMode ? 1.f : 0.f;
+    if (const auto it = settings.options.find(acName); it != settings.options.end())
+        return it->second;
+    const auto& defaults = DefaultOptions();
+    const auto it = defaults.find(acName);
+    return it != defaults.end() ? it->second : 0.f;
+}
+
+void Settings::SetOption(const std::string& acName, float aValue)
+{
+    auto& settings = Get();
+    if (acName == "debugMode")
+    {
+        const bool enabled = aValue >= 0.5f;
+        if (settings.debugModeFromLaunchOption)
+        {
+            if (enabled != settings.debugMode)
+                spdlog::info("[Settings] debug mode stays {} for this run (set by the launch option)",
+                             settings.debugMode ? "on" : "off");
+            return;
+        }
+        if (enabled != settings.debugMode)
+            SetDebugMode(enabled);
+        return;
+    }
+    if (Option(acName) == aValue)
+        return;
+    settings.options[acName] = aValue;
+    spdlog::info("[Settings] {} = {}", acName, aValue);
+    SaveModSettings(settings);
+}
 
 void Settings::ApplyLogLevel()
 {

@@ -8,6 +8,10 @@ extern std::filesystem::path GCyberpunkMpLocation;
 #include "App/Steam/SteamLobby.h"
 #include "App/Rendering/PartyColours.h"
 #include "App/World/NetworkWorldSystem.h"
+#include "App/Network/NetworkService.h"
+#include "App/Steam/SteamRelay.h"
+#include "App/Settings.h"
+#include "App/World/SyncDiagnostics.h"
 
 namespace
 {
@@ -21,6 +25,7 @@ std::mutex s_toastLock;
 std::vector<ToastEntry> s_toasts;
 std::atomic<bool> s_mainMenu{false};
 std::atomic<bool> s_pauseMenu{false};
+std::atomic<bool> s_inGameMenu{false}; // any full-screen game menu (inventory, journal, ...): no nameplates
 uint64_t s_confirmKick = 0;
 bool s_confirmEnd = false;
 
@@ -309,7 +314,9 @@ void DrawPauseParty(float aScale)
             }
 
             // where they are
-            std::string where = member.connected ? "connected" : (member.state == "ingame" ? "in game" : "in menu");
+            std::string where = !member.activity.empty() ? member.activity
+                                : member.connected       ? "connected"
+                                                         : (member.state == "ingame" ? "in game" : "in menu");
             if (!member.isLocal && me)
             {
                 for (const auto& remote : remotes)
@@ -319,7 +326,7 @@ void DrawPauseParty(float aScale)
                         if (const auto pos = world->GetRemotePlayerPosition(remote.serverId))
                         {
                             const float dx = pos->X - me->X, dy = pos->Y - me->Y, dz = pos->Z - me->Z;
-                            where = fmt::format("{:.0f} m away", std::sqrt(dx * dx + dy * dy + dz * dz));
+                            where = fmt::format("{}, {:.0f} m away", where, std::sqrt(dx * dx + dy * dy + dz * dz));
                         }
                         break;
                     }
@@ -350,6 +357,17 @@ void DrawPauseParty(float aScale)
             ImGui::PopID();
         }
 
+        if (!party.modMismatch.empty())
+        {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(1.f, 0.6f, 0.2f, 1.f), "%s", party.modMismatch.c_str());
+            ImGui::TextDisabled("Clothes/items from those mods may not show. The list is in CyberpunkMP.log.");
+        }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Map: select a friend's marker and set a waypoint to follow them.");
+        ImGui::TextDisabled("Placing your own waypoint shows it to the party.");
+
         if (party.isHost)
         {
             ImGui::Separator();
@@ -371,6 +389,193 @@ void DrawPauseParty(float aScale)
                 s_confirmEnd = true;
             }
         }
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+// Connection health, refreshed twice a second (asking the network library every frame is wasteful).
+struct NetHealth
+{
+    bool connected = false;
+    int ping = 0;
+    float quality = 1.f;
+    std::chrono::steady_clock::time_point next{};
+} s_net;
+
+void RefreshNetHealth()
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (now < s_net.next)
+        return;
+    s_net.next = now + std::chrono::milliseconds(500);
+    const auto service = Core::Container::Get<NetworkService>();
+    s_net.connected = service && service->IsConnected();
+    if (s_net.connected)
+    {
+        const auto status = service->GetConnectionStatus();
+        s_net.ping = status.m_nPing;
+        s_net.quality = std::min(status.m_flConnectionQualityLocal, status.m_flConnectionQualityRemote);
+    }
+}
+
+ImU32 HealthColour()
+{
+    if (s_net.ping > 180 || s_net.quality < 0.85f)
+        return IM_COL32(255, 80, 80, 255);
+    if (s_net.ping > 90 || s_net.quality < 0.97f)
+        return IM_COL32(255, 200, 70, 255);
+    return IM_COL32(80, 230, 120, 255);
+}
+
+// Small connection dot + ping in the top-right corner while connected.
+void DrawPingIndicator(float aScale)
+{
+    if (!s_net.connected || !Settings::Enabled("pingIndicator"))
+        return;
+    auto* draw = ImGui::GetBackgroundDrawList();
+    const auto& io = ImGui::GetIO();
+    const auto text = fmt::format("{} ms", s_net.ping);
+    ImFont* font = ImGui::GetFont();
+    const float size = ImGui::GetFontSize() * 1.1f * aScale;
+    const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.f, text.c_str());
+    const float r = 5.f * aScale;
+    const ImVec2 pos{io.DisplaySize.x - ts.x - 24.f * aScale, 10.f * aScale};
+    draw->AddCircleFilled({pos.x - r - 6.f * aScale, pos.y + ts.y * 0.5f}, r, HealthColour());
+    draw->AddText(font, size, {pos.x + 1, pos.y + 1}, IM_COL32(0, 0, 0, 160), text.c_str());
+    draw->AddText(font, size, pos, IM_COL32(235, 235, 240, 230), text.c_str());
+}
+
+// Names over friends' heads in their party colour, with distance. Positions are projected with the game camera.
+void DrawNameplates(float aScale)
+{
+    if (!s_net.connected || !Settings::Enabled("nameplates"))
+        return;
+    auto* world = Red::GetGameSystem<NetworkWorldSystem>();
+    if (!world || !world->IsPlayerReady())
+        return;
+    const auto me = world->GetLocalPlayerPosition();
+    if (!me)
+        return;
+
+    Red::Handle<Red::IGameSystem> camera;
+    if (!Red::CallStatic("ScriptGameInstance", "GetCameraSystem", camera) || !camera)
+        return;
+    Red::Vector4 forward{};
+    Red::CallVirtual(camera, "GetActiveCameraForward", forward);
+
+    const float maxDistance = Settings::Option("nameplateDistance");
+    const bool showDistance = Settings::Enabled("nameplateShowDistance");
+    const auto& io = ImGui::GetIO();
+    auto* draw = ImGui::GetBackgroundDrawList();
+    ImFont* font = ImGui::GetFont();
+    auto& lobby = App::SteamLobby::Get();
+
+    for (const auto& remote : world->GetRemotePlayers())
+    {
+        const auto pos = world->GetRemotePlayerPosition(remote.serverId);
+        if (!pos)
+            continue;
+        const float dx = pos->X - me->X, dy = pos->Y - me->Y, dz = pos->Z - me->Z;
+        const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (distance > maxDistance || distance < 0.5f)
+            continue;
+        if (dx * forward.X + dy * forward.Y + dz * forward.Z <= 0.f)
+            continue; // behind the camera
+
+        const Red::Vector4 head{pos->X, pos->Y, pos->Z + 2.05f, 1.f};
+        Red::Vector4 projected{};
+        if (!Red::CallVirtual(camera, "ProjectPoint", projected, head))
+            continue;
+        float nx = projected.X, ny = projected.Y;
+        if ((std::abs(nx) > 2.f || std::abs(ny) > 2.f) && std::abs(projected.W) > 0.0001f)
+        {
+            nx /= projected.W;
+            ny /= projected.W;
+        }
+        if (Settings::Get().debugMode && SyncDiagnostics::Every("nameplate-projection", std::chrono::seconds(10)))
+            spdlog::debug("[Overlay] nameplate projection for {}: raw ({:.3f}, {:.3f}, {:.3f}, {:.3f})", remote.name,
+                          projected.X, projected.Y, projected.Z, projected.W);
+        if (nx < -1.1f || nx > 1.1f || ny < -1.1f || ny > 1.1f)
+            continue;
+        const ImVec2 screen{(nx + 1.f) * 0.5f * io.DisplaySize.x, (1.f - ny) * 0.5f * io.DisplaySize.y};
+
+        const int slot = remote.steamId ? lobby.SlotOf(remote.steamId) : -1;
+        const ImU32 colour = SlotColour(slot);
+        const float closeness = std::clamp(1.f - distance / std::max(maxDistance, 1.f), 0.f, 1.f);
+        const float size = ImGui::GetFontSize() * (1.0f + 0.6f * closeness) * aScale;
+        const std::string name = remote.name.empty() ? std::string("Player") : remote.name;
+        const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.f, name.c_str());
+        const ImVec2 at{screen.x - ts.x * 0.5f, screen.y - ts.y};
+        for (const ImVec2 o : {ImVec2{1, 1}, ImVec2{-1, 1}, ImVec2{1, -1}, ImVec2{-1, -1}})
+            draw->AddText(font, size, {at.x + o.x * aScale, at.y + o.y * aScale}, IM_COL32(0, 0, 0, 200), name.c_str());
+        draw->AddText(font, size, at, colour, name.c_str());
+
+        if (showDistance)
+        {
+            const auto label = fmt::format("{:.0f} m", distance);
+            const float small = size * 0.7f;
+            const ImVec2 ls = font->CalcTextSizeA(small, FLT_MAX, 0.f, label.c_str());
+            const ImVec2 lat{screen.x - ls.x * 0.5f, screen.y + 2.f * aScale};
+            draw->AddText(font, small, {lat.x + aScale, lat.y + aScale}, IM_COL32(0, 0, 0, 200), label.c_str());
+            draw->AddText(font, small, lat, IM_COL32(230, 230, 235, 220), label.c_str());
+        }
+    }
+}
+
+// Pause menu: what the mod is doing and where to look when something is wrong.
+void DrawInfoPanel(float aScale)
+{
+    if (!Settings::Enabled("infoPanel"))
+        return;
+    static std::string s_version;
+    if (s_version.empty())
+    {
+        std::ifstream in(GCyberpunkMpLocation / "version.txt");
+        std::getline(in, s_version);
+        if (s_version.empty())
+            s_version = "dev";
+    }
+
+    const auto& settings = Settings::Get();
+    std::string mode;
+    if (settings.host)
+        mode = "Hosting";
+    else if (settings.steamHost)
+        mode = "Joining through the Steam relay";
+    else if (settings.enabled)
+        mode = fmt::format("Joining {}:{}", settings.ip.c_str(), settings.port);
+    else
+        mode = "Offline";
+
+    PlacePanel("info", {40.f * aScale, 140.f * aScale}, {0.f, 0.f});
+    ImGui::SetNextWindowBgAlpha(0.7f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14.f * aScale, 12.f * aScale});
+    if (ImGui::Begin("##cpmp-info", nullptr, kPanel))
+    {
+        TrackPanel("info");
+        ImGui::SetWindowFontScale(1.15f * aScale);
+        ImGui::TextColored(ImVec4(1.f, 0.33f, 0.33f, 1.f), "NS-CyberMP");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", s_version.c_str());
+        ImGui::Separator();
+        ImGui::Text("%s", mode.c_str());
+        if (s_net.connected)
+        {
+            const ImU32 c = HealthColour();
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(c), "Connected: %d ms, quality %.0f%%", s_net.ping,
+                               s_net.quality * 100.f);
+        }
+        else
+            ImGui::TextDisabled("Not connected to a server");
+        ImGui::Text("Steam relay: %s", App::SteamRelay::Get().IsAvailable() ? "available" : "not available");
+        ImGui::Text("Debug mode: %s%s", settings.debugMode ? "on" : "off",
+                    settings.debugModeFromLaunchOption ? " (launch option)" : "");
+        ImGui::Separator();
+        ImGui::TextDisabled("Options: Mod Settings > NS-CyberMP");
+        ImGui::TextDisabled("Something wrong? Type /mark <what happened> in chat,");
+        ImGui::TextDisabled("then use Collect logs in the launcher.");
+        const auto log = (GCyberpunkMpLocation / "CyberpunkMP.log").string();
+        ImGui::TextDisabled("Log: %s", log.c_str());
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -398,6 +603,11 @@ bool IsMainMenuVisible()
     return s_mainMenu;
 }
 
+void SetInGameMenuVisible(bool aVisible)
+{
+    s_inGameMenu = aVisible;
+}
+
 void SetPauseMenuVisible(bool aVisible)
 {
     s_pauseMenu = aVisible;
@@ -417,11 +627,24 @@ void Draw()
     const float scale = io.DisplaySize.y / 1080.f;
 
     SteamLobby::Get().Update();
+    RefreshNetHealth();
+
+    if (!s_mainMenu && !s_pauseMenu && !s_inGameMenu)
+        DrawNameplates(scale);
+    if (!s_mainMenu)
+        DrawPingIndicator(scale);
 
     DrawToasts(scale);
     if (s_mainMenu)
-        DrawParty(scale);
+    {
+        if (Settings::Enabled("partyPanels"))
+            DrawParty(scale);
+    }
     else if (s_pauseMenu)
-        DrawPauseParty(scale);
+    {
+        if (Settings::Enabled("partyPanels"))
+            DrawPauseParty(scale);
+        DrawInfoPanel(scale);
+    }
 }
 } // namespace App::Overlay

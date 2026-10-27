@@ -1,6 +1,9 @@
 #include "SteamLobby.h"
 
 #include <fstream>
+#include <cstdio>
+#include <set>
+#include <sstream>
 
 #include "SteamCallback.h"
 #include "App/Settings.h"
@@ -8,6 +11,7 @@
 #include "App/Network/NetworkService.h"
 #include "App/World/NetworkWorldSystem.h"
 #include "App/Steam/SteamRelay.h"
+#include "App/Debugging/CrashHandler.h"
 
 extern std::filesystem::path GCyberpunkMpLocation;
 
@@ -247,6 +251,15 @@ void SteamLobby::Leave()
         return;
 
     spdlog::info("[Party] left lobby {}", m_lobby);
+    if (auto* world = Red::GetGameSystem<NetworkWorldSystem>(); world && world->IsPlayerReady())
+    {
+        for (auto& [id, seen] : m_pings)
+            if (seen.visible)
+                Red::CallVirtual(world, "ClearPartyPing", seen.slot);
+    }
+    m_pings.clear();
+    m_checkedHostMods.clear();
+    m_modMismatch.clear();
     if (s_api.leaveLobby)
         s_api.leaveLobby(s_api.mm, m_lobby);
     if (s_api.setRichPresence)
@@ -327,7 +340,176 @@ void SteamLobby::PublishLocal()
     s_api.setMemberData(s_api.mm, m_lobby, "state", m_localState.c_str());
     s_api.setMemberData(s_api.mm, m_lobby, "connected", m_localConnected ? "1" : "0");
     s_api.setMemberData(s_api.mm, m_lobby, "version", m_version.c_str());
+
+    m_publishedActivity = Activity();
+    s_api.setMemberData(s_api.mm, m_lobby, "activity", m_publishedActivity.c_str());
+    if (!m_localPing.empty())
+        s_api.setMemberData(s_api.mm, m_lobby, "ping", m_localPing.c_str());
+
+    // Content mods (archives, tweaks): clothes and items from a mod only one player has cannot show for the other.
+    const auto& mods = CrashHandler::ContentMods();
+    if (m_modsHash.empty())
+    {
+        uint64_t hash = 1469598103934665603ull; // FNV-1a
+        for (const auto& name : mods)
+            for (const char c : name + "\n")
+                hash = (hash ^ static_cast<uint8_t>(c)) * 1099511628211ull;
+        m_modsHash = fmt::format("{:016x}", hash);
+    }
+    std::string list;
+    for (const auto& name : mods)
+    {
+        if (list.size() + name.size() + 1 > 7000)
+            break;
+        list += name + "\n";
+    }
+    s_api.setMemberData(s_api.mm, m_lobby, "modhash", m_modsHash.c_str());
+    s_api.setMemberData(s_api.mm, m_lobby, "mods", list.c_str());
     m_nextRefresh = {};
+}
+
+std::string SteamLobby::Activity() const
+{
+    if (m_localState == "menu")
+        return "on the title screen";
+    if (m_activityFlags.contains("loading"))
+        return "loading";
+    if (m_activityFlags.contains("dead"))
+        return "down";
+    if (m_activityFlags.contains("scene"))
+        return "in a cutscene";
+    if (m_activityFlags.contains("menu"))
+        return "in a menu";
+    if (m_activityFlags.contains("vehicle"))
+        return "in a vehicle";
+    return "in game";
+}
+
+void SteamLobby::SetActivity(const std::string& acFlag, bool aActive)
+{
+    const bool had = m_activityFlags.contains(acFlag);
+    if (had == aActive)
+        return;
+    if (aActive)
+        m_activityFlags.insert(acFlag);
+    else
+        m_activityFlags.erase(acFlag);
+
+    const auto activity = Activity();
+    spdlog::debug("[Party] activity flag {} {} -> {}", acFlag, aActive ? "on" : "off", activity);
+    if (m_available && m_lobby && activity != m_publishedActivity)
+    {
+        m_publishedActivity = activity;
+        s_api.setMemberData(s_api.mm, m_lobby, "activity", activity.c_str());
+        m_nextRefresh = {};
+    }
+}
+
+void SteamLobby::SharePing(float aX, float aY, float aZ)
+{
+    m_localPing = fmt::format("{};{:.1f};{:.1f};{:.1f}", ++m_pingSeq, aX, aY, aZ);
+    spdlog::info("[Party] sharing map waypoint ({:.1f}, {:.1f}, {:.1f}) with the party", aX, aY, aZ);
+    if (m_available && m_lobby)
+        s_api.setMemberData(s_api.mm, m_lobby, "ping", m_localPing.c_str());
+}
+
+// Other members' shared waypoints: shown on the map in their colour for two minutes, replaced by their next one.
+void SteamLobby::UpdatePings(const Snapshot& acSnapshot)
+{
+    auto* world = Red::GetGameSystem<NetworkWorldSystem>();
+    const bool canShow = world && world->IsPlayerReady() && Settings::Enabled("partyPings");
+    const auto now = std::chrono::steady_clock::now();
+
+    std::unordered_set<uint64_t> present;
+    for (const auto& member : acSnapshot.members)
+    {
+        if (member.isLocal)
+            continue;
+        present.insert(member.steamId);
+        const auto value = Str(s_api.getMemberData(s_api.mm, m_lobby, member.steamId, "ping"));
+        auto& seen = m_pings[member.steamId];
+        if (value.empty() || value == seen.value)
+            continue;
+
+        const bool first = seen.value.empty();
+        seen.value = value;
+        // The value already there when we join is old; only new waypoints are shown.
+        if (first && !seen.visible && seen.shown == std::chrono::steady_clock::time_point{})
+        {
+            seen.shown = now - std::chrono::minutes(10);
+            continue;
+        }
+
+        float x = 0, y = 0, z = 0;
+        unsigned seq = 0;
+        if (std::sscanf(value.c_str(), "%u;%f;%f;%f", &seq, &x, &y, &z) != 4)
+            continue;
+        seen.slot = member.slot;
+        seen.shown = now;
+        spdlog::info("[Party] {} shared a waypoint at ({:.1f}, {:.1f}, {:.1f})", member.name, x, y, z);
+        if (canShow)
+        {
+            Red::Vector4 position{x, y, z, 1.f};
+            Red::CallVirtual(world, "ShowPartyPing", member.slot, position);
+            seen.visible = true;
+            Overlay::Toast(fmt::format("{} marked a spot on the map", member.name.empty() ? "A player" : member.name));
+        }
+    }
+
+    for (auto it = m_pings.begin(); it != m_pings.end();)
+    {
+        auto& seen = it->second;
+        const bool gone = !present.contains(it->first);
+        if (seen.visible && (gone || now - seen.shown > std::chrono::minutes(2) || !canShow))
+        {
+            if (world && world->IsPlayerReady())
+                Red::CallVirtual(world, "ClearPartyPing", seen.slot);
+            seen.visible = false;
+        }
+        if (gone)
+            it = m_pings.erase(it);
+        else
+            ++it;
+    }
+}
+
+// Compares our content mods with the host's once per change of the host's list; differences go to the log in full and
+// to a toast/party status in short.
+void SteamLobby::CheckMods(uint64_t aHostId)
+{
+    const auto hostHash = Str(s_api.getMemberData(s_api.mm, m_lobby, aHostId, "modhash"));
+    if (hostHash.empty() || hostHash == m_checkedHostMods || m_modsHash.empty())
+        return;
+    m_checkedHostMods = hostHash;
+
+    if (hostHash == m_modsHash)
+    {
+        m_modMismatch.clear();
+        spdlog::info("[Party] content mods match the host's");
+        return;
+    }
+
+    std::set<std::string> theirs;
+    std::stringstream stream(Str(s_api.getMemberData(s_api.mm, m_lobby, aHostId, "mods")));
+    for (std::string line; std::getline(stream, line);)
+        if (!line.empty())
+            theirs.insert(line);
+    const auto& mine = CrashHandler::ContentMods();
+    const std::set<std::string> ours(mine.begin(), mine.end());
+
+    std::vector<std::string> onlyOurs, onlyTheirs;
+    std::ranges::set_difference(ours, theirs, std::back_inserter(onlyOurs));
+    std::ranges::set_difference(theirs, ours, std::back_inserter(onlyTheirs));
+
+    spdlog::warn("[Party] content mods differ from the host's: {} only you have, {} only the host has", onlyOurs.size(),
+                 onlyTheirs.size());
+    for (const auto& name : onlyOurs)
+        spdlog::warn("[Party]   only you: {}", name);
+    for (const auto& name : onlyTheirs)
+        spdlog::warn("[Party]   only the host: {}", name);
+
+    m_modMismatch = fmt::format("Mods differ from the host: {} only yours, {} only theirs", onlyOurs.size(), onlyTheirs.size());
+    Overlay::Toast(m_modMismatch + " (clothes/items from those may not show; list in the log)");
 }
 
 void SteamLobby::OnLobbyEnter(const void* apData)
@@ -406,7 +588,8 @@ void SteamLobby::OnLobbyChatUpdate(const void* apData)
     const bool entered = (data->stateChange & kMemberEntered) != 0;
     spdlog::info("[Party] {} ({}) {} the lobby (state change 0x{:x})", name, data->userChanged,
                  entered ? "joined" : "left", data->stateChange);
-    Overlay::Toast(fmt::format("{} {} the party", name.empty() ? "A player" : name, entered ? "joined" : "left"));
+    if (Settings::Enabled("toasts"))
+        Overlay::Toast(fmt::format("{} {} the party", name.empty() ? "A player" : name, entered ? "joined" : "left"));
     m_nextRefresh = {};
 }
 
@@ -476,6 +659,7 @@ void SteamLobby::Refresh()
             member.connected = Str(s_api.getMemberData(s_api.mm, m_lobby, member.steamId, "connected")) == "1";
             member.version = Str(s_api.getMemberData(s_api.mm, m_lobby, member.steamId, "version"));
             member.avatarHandle = s_api.mediumAvatar ? s_api.mediumAvatar(s_api.friends, member.steamId) : 0;
+            member.activity = Str(s_api.getMemberData(s_api.mm, m_lobby, member.steamId, "activity"));
             if (member.isHost)
                 snapshot.hostInGame = member.state == "ingame";
             snapshot.members.push_back(std::move(member));
@@ -484,6 +668,15 @@ void SteamLobby::Refresh()
         // Host first, then the others in lobby order.
         std::stable_sort(snapshot.members.begin(), snapshot.members.end(),
                          [](const Member& a, const Member& b) { return a.isHost && !b.isHost; });
+        for (size_t i = 0; i < snapshot.members.size(); ++i)
+            snapshot.members[i].slot = static_cast<int>(i);
+
+        if (!snapshot.isHost)
+        {
+            CheckMods(ownerId);
+            snapshot.modMismatch = m_modMismatch;
+        }
+        UpdatePings(snapshot);
 
         if (snapshot.versionMismatch)
             snapshot.status = fmt::format("Version mismatch: host {}, you {}", hostVersion, m_version);
@@ -511,6 +704,7 @@ void SteamLobby::Refresh()
         self.name = s_api.personaName ? Str(s_api.personaName(s_api.friends, m_localSteamId)) : std::string();
         self.avatarHandle = s_api.mediumAvatar ? s_api.mediumAvatar(s_api.friends, m_localSteamId) : 0;
         self.state = m_localState;
+        self.slot = 0;
         snapshot.members.push_back(std::move(self));
         snapshot.status = Settings::Get().host ? "Starting the party..." : "Not in a party";
     }
@@ -518,9 +712,10 @@ void SteamLobby::Refresh()
     // Logged only when something changes, so the log shows every state the party went through.
     std::string summary = fmt::format("status '{}'", snapshot.status);
     for (const auto& member : snapshot.members)
-        summary += fmt::format(" | {}{} ({}) state={} connected={} version={}", member.isHost ? "[host] " : "",
+        summary += fmt::format(" | {}{} ({}) state={} activity={} connected={} version={}", member.isHost ? "[host] " : "",
                                member.name, member.steamId, member.state.empty() ? "-" : member.state,
-                               member.connected, member.version.empty() ? "-" : member.version);
+                               member.activity.empty() ? "-" : member.activity, member.connected,
+                               member.version.empty() ? "-" : member.version);
     if (summary != m_lastLoggedSummary)
     {
         spdlog::info("[Party] {}", summary);
