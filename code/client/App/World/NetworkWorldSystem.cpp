@@ -40,7 +40,10 @@ NetworkWorldSystem::NetworkWorldSystem()
 bool NetworkWorldSystem::Spawn(uint64_t aServerId, const Red::Vector4& aPosition, const Red::Quaternion& aRotation, const Red::DynArray<Red::TweakDBID>& aEquipment, const Vector<uint8_t> aCcstate)
 {
     if (!m_ready)
+    {
+        spdlog::warn("[Spawn] server id {}: world not ready, not spawned", aServerId);
         return false;
+    }
 
     const auto handle = Red::GetGameSystem<NetworkWorldSystem>();
     Red::EntityID id;
@@ -51,17 +54,28 @@ bool NetworkWorldSystem::Spawn(uint64_t aServerId, const Red::Vector4& aPosition
 
     auto reader = CMPReader(aCcstate);
     CharacterCustomizationState_Serialize(stateHandle.instance, &reader);
+    const bool male = Game::Compat::IsBodyGenderMale(stateHandle.instance);
 
-    if (!Red::Detail::CallFunctionWithArgs(m_pCreatePuppet, handle, id, aPosition, aRotation, Game::Compat::IsBodyGenderMale(stateHandle.instance)))
+    if (!Red::Detail::CallFunctionWithArgs(m_pCreatePuppet, handle, id, aPosition, aRotation, male))
+    {
+        spdlog::error("[Spawn] server id {}: CreatePuppet (script) failed", aServerId);
         return false;
+    }
+    spdlog::info("[Spawn] server id {}: CreatePuppet -> game id {} (dynamic {}), body {}, {} equipment items, "
+                 "customization {} bytes", aServerId, id.hash, id.IsDynamic(), male ? "male" : "female",
+                 aEquipment.Size(), aCcstate.size());
 
     auto apprSystem = Red::GetGameSystem<NetworkWorldSystem>()->GetAppearanceSystem();
     apprSystem->AddEntity(id, aEquipment, aCcstate);
 
     if (!id.IsDynamic())
+    {
+        spdlog::error("[Spawn] server id {}: game id {} is not a dynamic entity, not tracked", aServerId, id.hash);
         return false;
+    }
 
     make_alive(aServerId).emplace<SpawningComponent>(id);
+    m_spawnStarted[aServerId] = std::chrono::steady_clock::now();
 
     return true;
 }
@@ -71,7 +85,16 @@ void NetworkWorldSystem::DeSpawn(uint64_t aServerId) const
     const auto entity = GetEntityByServerId(aServerId);
 
     if (!entity)
+    {
+        spdlog::info("[Spawn] despawn server id {}: not tracked here", aServerId);
         return;
+    }
+
+    if (auto* pEntity = entity.get<EntityComponent>())
+        spdlog::info("[Spawn] despawn server id {} (game id {}, {})", aServerId, pEntity->Id.hash,
+                     pEntity->IsVehicle ? "vehicle" : "character");
+    else if (auto* pSpawning = entity.get<SpawningComponent>())
+        spdlog::info("[Spawn] despawn server id {} (game id {}, was still spawning)", aServerId, pSpawning->Id.hash);
 
     if (auto* pEntity = entity.get<EntityComponent>())
     {
@@ -144,6 +167,16 @@ void NetworkWorldSystem::Update(uint64_t aTick)
 {
     GTick = aTick;
 
+    // Long frames (loading, stutters) are when positions jump; logged so they can be matched with desyncs.
+    const auto frameNow = std::chrono::steady_clock::now();
+    if (m_lastFrame.time_since_epoch().count() != 0)
+    {
+        const auto frameMs = std::chrono::duration_cast<std::chrono::milliseconds>(frameNow - m_lastFrame).count();
+        if (frameMs > 250 && SyncDiagnostics::Every("hitch", std::chrono::seconds(2)))
+            spdlog::warn("[Perf] frame took {} ms", frameMs);
+    }
+    m_lastFrame = frameNow;
+
     const auto delta = std::min(aTick - m_lastTick, 1000ull);
     m_lastTick = aTick;
 
@@ -164,11 +197,31 @@ void NetworkWorldSystem::ReportSync()
     m_nextSyncReport = now + std::chrono::seconds(5);
 
     using namespace SyncDiagnostics;
-    spdlog::info("[Sync] 5s: sent {} moves ({} vehicle), received {}, controller hook {} / attached {}, applied {} char "
-                 "+ {} vehicle, frames without controller {}, without stub {}",
+    spdlog::info("[Sync] 5s: sent {} moves ({} vehicle), received {} (unknown id {}, out of order {}), controller hook "
+                 "{} / attached {} / orphaned {}, applied {} char + {} vehicle, frames without controller {}, without "
+                 "stub {}, starved {}",
                  MovesSent.exchange(0), VehicleMovesSent.exchange(0), MovesReceived.exchange(0),
-                 ControllerHookCalls.exchange(0), ControllersAttached.load(), CharacterApplies.exchange(0),
-                 VehicleApplies.exchange(0), NoControllerFrames.exchange(0), NoStubFrames.exchange(0));
+                 MovesUnknownEntity.exchange(0), MovesOutOfOrder.exchange(0), ControllerHookCalls.exchange(0),
+                 ControllersAttached.load(), ControllerOrphans.load(), CharacterApplies.exchange(0),
+                 VehicleApplies.exchange(0), NoControllerFrames.exchange(0), NoStubFrames.exchange(0),
+                 StarvedFrames.exchange(0));
+
+    // Interpolation plays positions back ~100 ms behind the clock; if the clocks disagree a lot, characters freeze.
+    if (const auto last = LastReceivedTick.load())
+        spdlog::info("[Sync]   clock: local tick {}, newest received move tick {} (difference {} ms)", GTick, last,
+                     static_cast<int64_t>(GTick) - static_cast<int64_t>(last));
+
+    if (const auto local = GetLocalPlayerPosition())
+        spdlog::info("[Sync]   me: server id {}, at ({:.1f}, {:.1f}, {:.1f}){}",
+                     GetRemotePlayerId() ? std::to_string(*GetRemotePlayerId()) : std::string("none yet"), local->X,
+                     local->Y, local->Z, GetVehicleSystem() && GetVehicleSystem()->GetVehicleGameId() ? ", in a vehicle" : "");
+
+    each(
+        [this](flecs::entity aEntity, const SpawningComponent& aSpawning)
+        {
+            spdlog::info("[Sync]   server id {} still spawning (game id {}, controller {})", aEntity.id(),
+                         aSpawning.Id.hash, aSpawning.Controller ? "yes" : "no");
+        });
 
     each(
         [this](flecs::entity aEntity, const EntityComponent& aComponent)
@@ -186,10 +239,25 @@ void NetworkWorldSystem::ReportSync()
                     error = std::sqrt(dx * dx + dy * dy + dz * dz);
                 }
             }
-            spdlog::info("[Sync]   {} {}: controller {}, queued points {}, latest target {}, off by {:.1f} m",
-                         aComponent.IsVehicle ? "vehicle" : "character", aEntity.id(),
-                         aComponent.Controller ? "yes" : "NO",
-                         pInterpolation ? pInterpolation->TimePoints.size() : 0, target, error);
+            long long age = -1;
+            if (pInterpolation && pInterpolation->Received)
+                age = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                            pInterpolation->LastReceived).count();
+            std::string who;
+            if (const auto it = m_remotePlayers.find(aEntity.id()); it != m_remotePlayers.end())
+                who = fmt::format(" ({})", it->second.name);
+            float distance = -1.f;
+            if (const auto actual = GetRemotePlayerPosition(aEntity.id()))
+                if (const auto local = GetLocalPlayerPosition())
+                {
+                    const float dx = actual->X - local->X, dy = actual->Y - local->Y, dz = actual->Z - local->Z;
+                    distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+                }
+            spdlog::info("[Sync]   {} {}{}: game id {}, controller {}, moves received {}, last {} ms ago, queued {}, "
+                         "latest target {}, drawn off by {:.1f} m, {:.0f} m from me",
+                         aComponent.IsVehicle ? "vehicle" : "character", aEntity.id(), who, aComponent.Id.hash,
+                         aComponent.Controller ? "yes" : "NO", pInterpolation ? pInterpolation->Received : 0, age,
+                         pInterpolation ? pInterpolation->TimePoints.size() : 0, target, error, distance);
         });
 }
 
@@ -260,6 +328,15 @@ void NetworkWorldSystem::HandleCharacterLoad(const PacketEvent<server::NotifyCha
 
     auto ccstate = aMessage.get_ccstate();
 
+    spdlog::info("[Spawn] server says load {} {} '{}' (steam {}) at ({:.1f}, {:.1f}, {:.1f}) facing {:.2f}, {} equipment, "
+                 "customization {} bytes", aMessage.get_is_player() ? "player" : "character", aMessage.get_id(),
+                 aMessage.get_username().c_str(), aMessage.get_steam_id(), pos.get_x(), pos.get_y(), pos.get_z(), rot,
+                 equipment.Size(), ccstate.size());
+    if (GetRemotePlayerId() && *GetRemotePlayerId() == aMessage.get_id())
+        spdlog::warn("[Spawn] server id {} is our own character: the server sent us ourselves", aMessage.get_id());
+    for (const auto& item : equipment)
+        spdlog::debug("[Spawn]   equipment {:016x}", item.value);
+
     if (aMessage.get_is_player() && (aMessage.get_steam_id() || !aMessage.get_username().empty()))
     {
         m_remotePlayers[aMessage.get_id()] =
@@ -311,6 +388,8 @@ std::optional<Red::Vector4> NetworkWorldSystem::GetLocalPlayerPosition() const
 
 void NetworkWorldSystem::HandleEntityUnload(const PacketEvent<server::NotifyEntityUnload>& aMessage)
 {
+    spdlog::info("[Spawn] server says unload {}", aMessage.get_id());
+    m_spawnStarted.erase(aMessage.get_id());
     m_remotePlayers.erase(aMessage.get_id());
     DeSpawn(aMessage.get_id());
 }
@@ -319,11 +398,35 @@ void NetworkWorldSystem::HandleSpawnCharacterResponse(const PacketEvent<server::
 {
     if (!aMessage.has_id())
     {
-        spdlog::error("Failed to spawn our character on the server...");
+        spdlog::error("[Spawn] the server refused to spawn our character");
         return;
     }
 
+    spdlog::info("[Spawn] server spawned our character as server id {}", aMessage.get_id());
     SetRemotePlayerId(aMessage.get_id());
+}
+
+// Local movement: what we send, and jumps that look like teleports (fast travel, respawn, scene placement).
+static void NoteLocalSend(const char* acKind, float aX, float aY, float aZ, float aSpeed, uint64_t aServerId)
+{
+    static bool s_have = false;
+    static float s_x = 0, s_y = 0, s_z = 0;
+    if (s_have)
+    {
+        const float dx = aX - s_x, dy = aY - s_y, dz = aZ - s_z;
+        const float jump = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (jump > 30.f)
+            spdlog::warn("[Move] my {} jumped {:.0f} m to ({:.1f}, {:.1f}, {:.1f}) (teleport / fast travel / respawn?)",
+                         acKind, jump, aX, aY, aZ);
+    }
+    s_have = true;
+    s_x = aX;
+    s_y = aY;
+    s_z = aZ;
+
+    if (SyncDiagnostics::Every("local-send", std::chrono::seconds(5)))
+        spdlog::info("[Move] sending my {} (server id {}): ({:.1f}, {:.1f}, {:.1f}) speed {:.1f}, tick {}", acKind,
+                     aServerId, aX, aY, aZ, aSpeed, NetworkWorldSystem::GetTick());
 }
 
 static Core::RawFunc<
@@ -355,7 +458,8 @@ void NetworkWorldSystem::UpdatePlayerLocation() const
         auto vehicle = Red::Cast<Red::vehicle::BaseObject>(GetEntity(*vehicle_id));
         if (!vehicle)
         {
-            spdlog::info("Couldn't find vehicle: {}", (*vehicle_id).hash);
+            if (SyncDiagnostics::Every("vehicle-missing", std::chrono::seconds(5)))
+                spdlog::warn("[Move] my vehicle game id {} is not loaded: sending nothing", (*vehicle_id).hash);
             return;
         }
         if (auto remote_id = GetVehicleSystem()->GetVehicleRemoteId(); remote_id != std::nullopt)
@@ -412,6 +516,15 @@ void NetworkWorldSystem::UpdatePlayerLocation() const
             characterRequest.set_tick(GetTick());
 
             pNetworkService->Send(characterRequest);
+            NoteLocalSend("vehicle", cEntityPosition.X, cEntityPosition.Y, cEntityPosition.Z, speed, *remote_id);
+            if (SyncDiagnostics::Every("vehicle-physics", std::chrono::seconds(5)))
+                spdlog::info("[Move]   my vehicle game id {}: physics state 0x{:x}", vehicle->entityID.hash,
+                             Game::Compat::GetPhysicsState(vehicle));
+        }
+        else if (SyncDiagnostics::Every("vehicle-no-control", std::chrono::seconds(5)))
+        {
+            spdlog::info("[Move] in my vehicle (game id {}) but the server has not given us control yet: not sending "
+                         "its position", (*vehicle_id).hash);
         }
     }
     else
@@ -436,6 +549,9 @@ void NetworkWorldSystem::UpdatePlayerLocation() const
         const auto pNetworkService = Core::Container::Get<NetworkService>();
         pNetworkService->Send(request);
         ++SyncDiagnostics::MovesSent;
+        NoteLocalSend("character", cEntityPosition.X, cEntityPosition.Y, cEntityPosition.Z, speed, *GetRemotePlayerId());
+        if (!pMoveComponent && SyncDiagnostics::Every("no-move-component", std::chrono::seconds(10)))
+            spdlog::warn("[Move] my character has no move component: speed sent as 0 (remote players see me sliding)");
     }
 
     // if (GetEntityByServerId(*GetRemotePlayerId()).get_mut<InterpolationComponent>()->Attached)
@@ -516,18 +632,38 @@ void NetworkWorldSystem::Connect()
             spdlog::warn("[Relay] Steam relay unavailable, connecting directly to {}", address);
     }
 
-    Core::Container::Get<NetworkService>()->Connect(address);
+    spdlog::info("[Net] connecting to {}{}", address,
+                 settings.steamHost ? fmt::format(" (Steam relay to host {})", settings.steamHost) : std::string());
+    if (!Core::Container::Get<NetworkService>()->Connect(address))
+        spdlog::error("[Net] could not start the connection to {}", address);
 }
 
 void NetworkWorldSystem::SetMainMenuVisible(bool aVisible)
 {
+    spdlog::info("[Menu] title screen {}", aVisible ? "shown" : "hidden");
     App::Overlay::SetMainMenuVisible(aVisible);
     if (aVisible)
         App::SteamLobby::Get().SetLocalState("menu");
 }
 
+void NetworkWorldSystem::Log(const Red::CString& aCategory, const Red::CString& aMessage)
+{
+    spdlog::info("[Script/{}] {}", aCategory.c_str(), aMessage.c_str());
+}
+
+bool NetworkWorldSystem::IsDebugMode() const
+{
+    return Settings::Get().debugMode;
+}
+
+void NetworkWorldSystem::SetDebugMode(bool aEnabled)
+{
+    Settings::SetDebugMode(aEnabled);
+}
+
 void NetworkWorldSystem::SetPauseMenuVisible(bool aVisible)
 {
+    spdlog::info("[Menu] pause/map menu {}", aVisible ? "opened" : "closed");
     App::Overlay::SetPauseMenuVisible(aVisible);
 }
 
@@ -547,6 +683,9 @@ Red::Vector4 NetworkWorldSystem::GetPlayerColor(Red::EntityID aEntity) const
 bool NetworkWorldSystem::ShouldAutoConnect()
 {
     m_playerReady = true;
+    spdlog::info("[World] player is in the world (HUD ready); auto-connect {}, connected {}",
+                 Settings::Get().autoConnect ? "on" : "off",
+                 Core::Container::Get<NetworkService>()->IsConnected() ? "yes" : "no");
     App::Overlay::SetMainMenuVisible(false);
     App::SteamLobby::Get().SetLocalState("ingame");
     return Settings::Get().autoConnect && !Core::Container::Get<NetworkService>()->IsConnected();
@@ -579,6 +718,10 @@ void NetworkWorldSystem::OnConnected()
         .each([this](flecs::entity aEntity, SpawningComponent& aSpawning)
         {
             const auto pEntity = GetEntity(aSpawning.Id);
+            const auto started = m_spawnStarted.find(aEntity.id());
+            const auto waited = started != m_spawnStarted.end()
+                ? std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started->second).count()
+                : -1;
             if (const auto pOwner = Red::Cast<Red::GameObject>(pEntity))
             {
                 if (pOwner->tags.Contains(Red::CName("CyberpunkMP.Vehicle")))
@@ -587,6 +730,15 @@ void NetworkWorldSystem::OnConnected()
                  aEntity.emplace<EntityComponent>(aSpawning.Id, false, aSpawning.Controller);
                  aEntity.remove<SpawningComponent>();
                  pOwner->tags.Add(Red::CName("CyberpunkMP.Puppet"));
+                 spdlog::info("[Spawn] server id {}: in the world after {} ms (game id {}, controller {})", aEntity.id(),
+                              waited, aSpawning.Id.hash, aSpawning.Controller ? "already attached" : "not yet");
+                 if (started != m_spawnStarted.end())
+                     m_spawnStarted.erase(started);
+            }
+            else if (waited > 10000 && SyncDiagnostics::Every(fmt::format("spawn-slow-{}", aEntity.id()), std::chrono::seconds(10)))
+            {
+                spdlog::warn("[Spawn] server id {}: still no game entity {} s after CreatePuppet (game id {}, entity {})",
+                             aEntity.id(), waited / 1000, aSpawning.Id.hash, pEntity ? "exists, not a GameObject" : "not found");
             }
         });
 
@@ -595,7 +747,10 @@ void NetworkWorldSystem::OnConnected()
 
 void NetworkWorldSystem::OnDisconnected(Client::EDisconnectReason aReason)
 {
+    spdlog::info("[Spawn] disconnected (reason {}): removing {} remote players", static_cast<int>(aReason),
+                 m_remotePlayers.size());
     m_remotePlayers.clear();
+    m_spawnStarted.clear();
 
     each([this](flecs::entity entity, EntityComponent&)
         {

@@ -414,6 +414,46 @@ void SteamRelay::Run()
         std::chrono::steady_clock::time_point lastSeen;
     };
 
+    // Traffic counters, logged every 5 s per Steam peer: shows whether packets flow both ways and whether any are lost
+    // locally (send failures, packets with nowhere to go).
+    struct Traffic
+    {
+        uint64_t inPackets = 0, inBytes = 0, outPackets = 0, outBytes = 0, sendFailures = 0, dropped = 0;
+        uint64_t totalIn = 0, totalOut = 0;
+        bool silentLogged = false;
+        std::chrono::steady_clock::time_point lastIn{};
+    };
+    std::unordered_map<uint64_t, Traffic> traffic;
+    auto nextTraffic = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    auto noteIn = [&](uint64_t aId, int aBytes, std::chrono::steady_clock::time_point aNow)
+    {
+        auto& t = traffic[aId];
+        if (t.totalIn == 0)
+            spdlog::info("[Relay] first packet from {} ({} bytes)", aId, aBytes);
+        else if (t.silentLogged)
+            spdlog::info("[Relay] {} is sending again after {} ms of silence", aId,
+                         std::chrono::duration_cast<std::chrono::milliseconds>(aNow - t.lastIn).count());
+        t.silentLogged = false;
+        t.lastIn = aNow;
+        ++t.inPackets;
+        ++t.totalIn;
+        t.inBytes += aBytes;
+    };
+    auto noteOut = [&](uint64_t aId, int aBytes, bool aOk)
+    {
+        auto& t = traffic[aId];
+        if (t.totalOut == 0)
+            spdlog::info("[Relay] first packet to {} ({} bytes)", aId, aBytes);
+        ++t.outPackets;
+        ++t.totalOut;
+        t.outBytes += aBytes;
+        if (!aOk)
+        {
+            if (t.sendFailures++ == 0)
+                spdlog::warn("[Relay] sending to {} failed (Steam networking threw)", aId);
+        }
+    };
+
     std::unordered_map<uint64_t, Peer> peers;
     sockaddr_in gameAddress{};
     bool haveGameAddress = false;
@@ -487,9 +527,12 @@ void SteamRelay::Run()
                 isBanned = m_banned.contains(from);
             }
 
+            noteIn(from, message->m_cbSize, now);
+
             if (mode == Mode::kHost && isBanned)
             {
                 // ignore: kicked this session
+                ++traffic[from].dropped;
             }
             else if (mode == Mode::kHost)
             {
@@ -509,12 +552,21 @@ void SteamRelay::Run()
                     it = peers.emplace(from, peer).first;
                 }
                 it->second.lastSeen = now;
-                send(it->second.socket, static_cast<const char*>(message->m_pData), message->m_cbSize, 0);
+                if (send(it->second.socket, static_cast<const char*>(message->m_pData), message->m_cbSize, 0) < 0)
+                    ++traffic[from].dropped;
             }
             else if (mode == Mode::kClient && from == hostSteamId && haveGameAddress)
             {
-                sendto(clientSocket, static_cast<const char*>(message->m_pData), message->m_cbSize, 0,
-                       reinterpret_cast<sockaddr*>(&gameAddress), sizeof(gameAddress));
+                if (sendto(clientSocket, static_cast<const char*>(message->m_pData), message->m_cbSize, 0,
+                           reinterpret_cast<sockaddr*>(&gameAddress), sizeof(gameAddress)) < 0)
+                    ++traffic[from].dropped;
+            }
+            else
+            {
+                // Client: from someone other than the host, or the game has not sent anything yet.
+                if (traffic[from].dropped++ == 0)
+                    spdlog::warn("[Relay] dropping packet from {} (mode {}, host {}, game socket known: {})", from,
+                                 static_cast<int>(mode), hostSteamId, haveGameAddress);
             }
 
             Release(message);
@@ -528,11 +580,11 @@ void SteamRelay::Run()
                 auto& peer = it->second;
                 int received;
                 while ((received = recv(peer.socket, buffer, sizeof(buffer), 0)) > 0)
-                    SafeSend(&peer.identity, buffer, received);
+                    noteOut(it->first, received, SafeSend(&peer.identity, buffer, received));
 
                 if (now - peer.lastSeen > std::chrono::minutes(2))
                 {
-                    spdlog::info("[Relay] {} timed out", peer.identity.GetSteamID64());
+                    spdlog::info("[Relay] {} timed out (nothing received for 2 minutes)", peer.identity.GetSteamID64());
                     closesocket(peer.socket);
                     if (s_api.close)
                         s_api.close(s_api.messages, &peer.identity);
@@ -552,9 +604,29 @@ void SteamRelay::Run()
                                         &fromLen)) > 0)
             {
                 gameAddress = from;
+                if (!haveGameAddress)
+                    spdlog::info("[Relay] game connected to the local relay port; forwarding to host {}", hostSteamId);
                 haveGameAddress = true;
-                SafeSend(&host, buffer, received);
+                noteOut(hostSteamId, received, SafeSend(&host, buffer, received));
                 fromLen = sizeof(from);
+            }
+        }
+
+        if (now >= nextTraffic)
+        {
+            nextTraffic = now + std::chrono::seconds(5);
+            for (auto& [id, t] : traffic)
+            {
+                if (t.inPackets || t.outPackets || t.dropped)
+                    spdlog::info("[Relay] {} last 5s: in {} pkts/{} B, out {} pkts/{} B, send failures {}, dropped {}",
+                                 id, t.inPackets, t.inBytes, t.outPackets, t.outBytes, t.sendFailures, t.dropped);
+                if (t.totalIn > 0 && !t.silentLogged && now - t.lastIn > std::chrono::seconds(3))
+                {
+                    t.silentLogged = true;
+                    spdlog::warn("[Relay] nothing received from {} for {} ms", id,
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(now - t.lastIn).count());
+                }
+                t.inPackets = t.inBytes = t.outPackets = t.outBytes = t.sendFailures = t.dropped = 0;
             }
         }
 

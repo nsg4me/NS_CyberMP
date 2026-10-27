@@ -159,6 +159,7 @@ electron.app.whenReady().then(async () => {
       gamePath,
       modDir: host.modDir(),
       hostLines: host.getStatus().lines,
+      logDir: host.logDir(),
       launcherVersion: updater.currentVersion(),
       requirements: await deps.status(gamePath).catch(() => null)
     })

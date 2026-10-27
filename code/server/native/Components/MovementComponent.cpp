@@ -2,6 +2,7 @@
 
 #include "GameServer.h"
 #include "PlayerComponent.h"
+#include "ServerDiagnostics.h"
 
 void ReplicateMovementComponent(flecs::entity aEntity, const MovementComponent& aComponent)
 {
@@ -38,6 +39,7 @@ void ReplicateMovementComponent(flecs::entity aEntity, const MovementComponent& 
                 return;
 
             GServer->Send(aPlayerComponent.Connection, message);
+            ++ServerDiagnostics::Replicated;
         });
 }
 

@@ -85,6 +85,7 @@ private:
 
     std::mutex m_lock;
     Snapshot m_snapshot;
+    std::string m_lastLoggedSummary;
     std::chrono::steady_clock::time_point m_nextRefresh{};
 };
 } // namespace App

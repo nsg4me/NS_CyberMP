@@ -1,4 +1,5 @@
 #include "Level.h"
+#include "ServerDiagnostics.h"
 
 #include <Components/LevelTag.h>
 #include <Components/MovementComponent.h>
@@ -86,6 +87,7 @@ void Level::Add(flecs::entity aEntity) noexcept
         if (!IsDebug() && owner == aEntity)
             return;
 
+        spdlog::info("[Spawn] telling '{}' to load {:x}", aPlayerComponent.Username.c_str(), load.get_id());
         GServer->Send(aPlayerComponent.Connection, load);
     });
 
@@ -152,6 +154,7 @@ void Level::AddPlayer(flecs::entity aEntity) noexcept
             if (aEntity.parent() == player)
                 return;
 
+            spdlog::info("[Spawn] telling new player '{}' to load existing {:x}", pPlayerComponent->Username.c_str(), aEntity.id());
             GServer->Send(pPlayerComponent->Connection, Serialize(aEntity));
         });
 }
@@ -169,6 +172,8 @@ void Level::HandleSpawnCharacterRequest(PacketEvent<client::SpawnCharacterReques
     glm::vec3 rot = {0.f, 0.f, aMessage.get_rotation()};
     const Vector<String> equipment = aMessage.get_equipment();
     const Vector<uint8_t> ccstate = aMessage.get_ccstate();
+    spdlog::info("[Spawn] connection {:x} spawns its character at ({:.1f}, {:.1f}, {:.1f}), {} equipment, customization {} bytes",
+                 aMessage.ConnectionId, pos.x, pos.y, pos.z, equipment.size(), ccstate.size());
 
     server::SpawnCharacterResponse response;
     response.set_cookie(aMessage.get_cookie());
@@ -195,6 +200,7 @@ void Level::HandleSpawnCharacterRequest(PacketEvent<client::SpawnCharacterReques
 
     response.set_id(pComponent->Puppet);
     GServer->Send(aMessage.ConnectionId, response);
+    spdlog::info("[Spawn] '{}' character is entity {:x}", pComponent->Username.c_str(), pComponent->Puppet.id());
 
     Add(player);
 }
@@ -202,32 +208,55 @@ void Level::HandleSpawnCharacterRequest(PacketEvent<client::SpawnCharacterReques
 void Level::HandleMoveEntityRequest(PacketEvent<client::MoveEntityRequest>& aMessage) noexcept
 {
     flecs::entity target(GetWorld()->get_world(), aMessage.get_id());
+    auto& stats = ServerDiagnostics::Entities[aMessage.get_id()];
+    stats.connection = aMessage.ConnectionId;
+    // Rejections repeat every update; one line per entity and reason every 10 s.
+    const auto reject = [&](const char* acReason)
+    {
+        ++stats.rejected;
+        if (ServerDiagnostics::Every(fmt::format("reject-{}-{}", aMessage.get_id(), acReason), std::chrono::seconds(10)))
+            spdlog::warn("[Sync] rejected move of {:x} from connection {:x}: {}", aMessage.get_id(), aMessage.ConnectionId,
+                         acReason);
+    };
 
     if (!target)
     {
-        spdlog::warn("Attempt to move invalid entity {:x} from connection {:x}", aMessage.get_id(), aMessage.ConnectionId);
+        reject("no such entity");
         return;
     }
 
     const auto player = target.parent();
     if (!player)
     {
-        spdlog::warn("Attempt to move an entity without an owner from connection {:x}", aMessage.ConnectionId);
+        reject("entity has no owner");
         return;
     }
 
     auto* pPlayer = player.get<PlayerComponent>();
     if (!pPlayer)
     {
-        spdlog::warn("The entity's owner is not a player! From connection {:x}", aMessage.ConnectionId);
+        reject("owner is not a player");
         return;
     }
 
     if (pPlayer->Connection != aMessage.ConnectionId)
     {
-        spdlog::warn("The entity's owner is not the current player! From connection {:x}", aMessage.ConnectionId);
+        reject(target.has<VehicleComponent>() ? "vehicle belongs to another player (not the driver)" : "entity belongs to another player");
         return;
     }
+
+    if (stats.total && aMessage.get_tick() < stats.lastTick)
+        ++stats.backwards;
+    ++stats.moves;
+    ++stats.total;
+    stats.vehicle = target.has<VehicleComponent>();
+    stats.last = {aMessage.get_position().get_x(), aMessage.get_position().get_y(), aMessage.get_position().get_z()};
+    stats.lastTick = aMessage.get_tick();
+    stats.lastMove = std::chrono::steady_clock::now();
+    if (stats.total == 1)
+        spdlog::info("[Sync] first move of {} {:x} from '{}' at ({:.1f}, {:.1f}, {:.1f}) tick {}",
+                     stats.vehicle ? "vehicle" : "character", aMessage.get_id(), pPlayer->Username.c_str(), stats.last.x,
+                     stats.last.y, stats.last.z, stats.lastTick);
 
     MovementComponent component;
 
@@ -299,7 +328,8 @@ void Level::HandleEnterVehicleRequest(PacketEvent<client::EnterVehicleRequest>& 
             return;
         }
 
-        spdlog::info("Player {:x} entered vehicle {:x}", aMessage.get_id(), vehicle.id());
+        spdlog::info("[Vehicle] character {:x} ('{}') entered existing vehicle {:x} (owned by {:x}) seat {:x}",
+                     aMessage.get_id(), pPlayer->Username.c_str(), vehicle.id(), vehicle.parent().id(), aMessage.get_sit_id());
     }
     else
     {
@@ -313,7 +343,8 @@ void Level::HandleEnterVehicleRequest(PacketEvent<client::EnterVehicleRequest>& 
 
         vehicle = GetWorld()->entity().child_of(player).set<MovementComponent>({pos, rot, {}}).set<VehicleComponent>({aMessage.get_vehicle_id()});
 
-        spdlog::info("Player {:x} spawned and entered vehicle {:x}", aMessage.get_id(), vehicle.id());
+        spdlog::info("[Vehicle] character {:x} ('{}') entered their own vehicle {:x} (tweak {:x}) seat {:x}",
+                     aMessage.get_id(), pPlayer->Username.c_str(), vehicle.id(), aMessage.get_vehicle_id(), aMessage.get_sit_id());
     }
 
     target.set<AttachmentComponent>({vehicle, aMessage.get_sit_id()});
@@ -351,6 +382,12 @@ void Level::HandleExitVehicleRequest(PacketEvent<client::ExitVehicleRequest>& aM
 
     //if (auto* pAttachment = target.get<AttachmentComponent>())
     //    pAttachment->Parent.destruct();
+
+    if (auto* pAttachment = target.get<AttachmentComponent>())
+        spdlog::info("[Vehicle] character {:x} ('{}') left vehicle {:x}", aMessage.get_id(), pPlayer->Username.c_str(),
+                     pAttachment->Parent.id());
+    else
+        spdlog::warn("[Vehicle] character {:x} ('{}') left a vehicle it was not in", aMessage.get_id(), pPlayer->Username.c_str());
 
     // Start interpolation again
     target.remove<AttachmentComponent>();

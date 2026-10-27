@@ -1,5 +1,9 @@
 #include "Application.h"
 
+#include <fstream>
+
+extern std::filesystem::path GCyberpunkMpLocation;
+
 #include "Core/Foundation/LocaleProvider.hpp"
 #include "Core/Foundation/RuntimeProvider.hpp"
 #include "Network/NetworkService.h"
@@ -8,6 +12,7 @@
 #include "Debugging/DebugService.h"
 #include "Threading/ThreadService.h"
 #include "Steam/SteamService.h"
+#include "Debugging/CrashHandler.h"
 
 #include "Support/MinHook/MinHookProvider.hpp"
 #include "Support/RedLib/RedLibProvider.hpp"
@@ -41,7 +46,26 @@ Application::Application(RED4ext::v1::PluginHandle aPlugin, const RED4ext::v1::S
 void Application::OnStarted()
 {
     Core::Application::OnStarted();
-    spdlog::info("NS-CyberMP client started");
+
+    // Session header: enough to tell builds and Proton apart when reading a log later.
+    std::string version = "dev";
+    {
+        std::ifstream in(GCyberpunkMpLocation / "version.txt");
+        std::getline(in, version);
+    }
+
+    std::string platform = "Windows";
+    if (const auto ntdll = GetModuleHandleW(L"ntdll.dll"))
+    {
+        using WineVersion_t = const char* (*)();
+        if (const auto wineVersion = reinterpret_cast<WineVersion_t>(GetProcAddress(ntdll, "wine_get_version")))
+            platform = fmt::format("Wine/Proton {}", wineVersion());
+    }
+
+    spdlog::info("NS-CyberMP client started: mod {}, {}, mod folder {}", version, platform,
+                 GCyberpunkMpLocation.string());
+
+    CrashHandler::Install();
 }
 
 void Application::OnStopped()

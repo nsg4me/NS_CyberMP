@@ -12,4 +12,9 @@ struct InterpolationComponent
 
     List<Timepoint> TimePoints{};
     Timepoint PreviousFrame{};
+
+    // Diagnostics (CyberpunkMP.log)
+    std::chrono::steady_clock::time_point LastReceived{};
+    uint64_t Received{0};
+    bool GapLogged{false};
 };

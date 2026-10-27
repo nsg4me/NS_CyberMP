@@ -7,6 +7,7 @@
 #include "Packet.h"
 #include <google/protobuf/stubs/port.h>
 #include <snappy.h>
+#include <spdlog/spdlog.h>
 
 
 static thread_local Client* s_pClient = nullptr;
@@ -274,6 +275,15 @@ const SynchronizedClock& Client::GetClock() const noexcept
 
 void Client::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* apInfo)
 {
+    // Every transition with the library's own reason: the first thing to read when a connection fails or drops.
+    {
+        char address[SteamNetworkingIPAddr::k_cchMaxString]{};
+        apInfo->m_info.m_addrRemote.ToString(address, sizeof(address), true);
+        spdlog::info("[Net] connection {} -> {} (remote {}, end reason {}{}{})", static_cast<int>(apInfo->m_eOldState),
+                     static_cast<int>(apInfo->m_info.m_eState), address, static_cast<int>(apInfo->m_info.m_eEndReason),
+                     apInfo->m_info.m_szEndDebug[0] ? ": " : "", apInfo->m_info.m_szEndDebug);
+    }
+
     switch (apInfo->m_info.m_eState)
     {
     case k_ESteamNetworkingConnectionState_None:
@@ -304,6 +314,7 @@ void Client::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCa
     case k_ESteamNetworkingConnectionState_Connecting:
         break;
     case k_ESteamNetworkingConnectionState_Connected:
+        spdlog::info("[Net] transport connected, sending handshake");
         SendHandshake();
         break;
     default:

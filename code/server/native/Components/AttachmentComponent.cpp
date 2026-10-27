@@ -9,7 +9,8 @@ void ReplicateSetAttachmentComponent(flecs::entity aEntity, AttachmentComponent&
     enter.set_character_id(aEntity);
     enter.set_sit_id(aComponent.SlotId);
 
-    spdlog::info("AttachmentComponent::ReplicateSetAttachmentComponent: Slot: {}", aComponent.SlotId);
+    spdlog::info("[Vehicle] replicating: {:x} sits in vehicle {:x} seat {:x}{}", aEntity.id(), aComponent.Parent.id(),
+                 aComponent.SlotId, aComponent.SlotId == 0xb000b1d029d0cea0ULL ? " (driver)" : " (passenger)");
 
     aEntity.world().each(
         [aEntity, &enter](flecs::entity player, const PlayerComponent& aPlayerComponent)
@@ -27,7 +28,8 @@ void ReplicateSetAttachmentComponent(flecs::entity aEntity, AttachmentComponent&
 
         aComponent.Parent.child_of(aEntity.parent());
 
-        spdlog::info("Assign control of vehicle {:x}", control.get_vehicle_id());
+        spdlog::info("[Vehicle] vehicle {:x} is now controlled (and owned) by player {:x}", control.get_vehicle_id(),
+                     aEntity.parent().id());
 
         if (auto* pPlayerComponent = aEntity.parent().get<PlayerComponent>())
             GServer->Send(pPlayerComponent->Connection, control);
@@ -39,7 +41,8 @@ void ReplicateRemoveAttachmentComponent(flecs::entity aEntity, const AttachmentC
     server::NotifyVehicleExit message;
     message.set_character_id(aEntity);
 
-    spdlog::info("AttachmentComponent::ReplicateRemoveAttachmentComponent");
+    spdlog::info("[Vehicle] replicating: {:x} left vehicle {:x} (the vehicle keeps its owner)", aEntity.id(),
+                 aComponent.Parent.id());
 
     aEntity.world().each(
         [aEntity, &message](flecs::entity player, const PlayerComponent& aPlayerComponent)

@@ -67,6 +67,10 @@ struct NetworkWorldSystem : RED4ext::IGameSystem, Core::HookingAgent, flecs::wor
     void SetMainMenuVisible(bool aVisible);
     // Pause menu / world map open (from their scripts): shows the party list.
     void SetPauseMenuVisible(bool aVisible);
+    // Scripts write to CyberpunkMP.log through this ("[Script/<category>] message").
+    void Log(const Red::CString& aCategory, const Red::CString& aMessage);
+    bool IsDebugMode() const;
+    void SetDebugMode(bool aEnabled);
     // Party colour (r, g, b, 1) of a remote player's character, for map markers. Grey when unknown.
     Red::Vector4 GetPlayerColor(Red::EntityID aEntity) const;
     bool IsPlayerReady() const { return m_playerReady; }
@@ -89,6 +93,8 @@ private:
     bool m_ready{false};
     bool m_playerReady{false};
     std::chrono::steady_clock::time_point m_nextSyncReport{};
+    std::unordered_map<uint64_t, std::chrono::steady_clock::time_point> m_spawnStarted; // server id -> CreatePuppet time
+    std::chrono::steady_clock::time_point m_lastFrame{};
     Red::CBaseFunction* m_pCreatePuppet;
     Red::CBaseFunction* m_pDeletePuppet;
     std::optional<uint64_t> m_remotePlayerId;
@@ -109,6 +115,9 @@ RTTI_DEFINE_CLASS(NetworkWorldSystem, {
     RTTI_METHOD(ShouldAutoConnect);
     RTTI_METHOD(SetMainMenuVisible);
     RTTI_METHOD(SetPauseMenuVisible);
+    RTTI_METHOD(Log);
+    RTTI_METHOD(IsDebugMode);
+    RTTI_METHOD(SetDebugMode);
     RTTI_METHOD(GetPlayerColor);
     RTTI_METHOD(GetEntityIdByServerId);
     RTTI_METHOD(GetAppearanceSystem);

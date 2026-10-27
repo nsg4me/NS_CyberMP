@@ -1,5 +1,7 @@
 #include "Settings.h"
+#include <fstream>
 #include <RED4ext/LaunchParameters.hpp>
+#include "App/Debugging/CrashHandler.h"
 
 extern std::filesystem::path GCyberpunkMpLocation;
 
@@ -56,7 +58,86 @@ void LoadSessionFile(Settings& aSettings, bool aHasCommandLineAddress)
     // One use only: the next normal start of the game must not end up in multiplayer.
     fs::remove(file, ec);
 }
+constexpr auto ModSettingsFileName = "settings.json";
+
+// Persistent mod options (unlike the one-use session file).
+void LoadModSettings(Settings& aSettings)
+{
+    const auto file = GCyberpunkMpLocation / ModSettingsFileName;
+    std::error_code ec;
+    if (!fs::exists(file, ec))
+        return;
+    try
+    {
+        std::ifstream in(file);
+        const auto json = nlohmann::json::parse(in);
+        aSettings.debugMode = json.value("debugMode", false);
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::error("[Settings] cannot read {}: {}", file.string(), e.what());
+    }
+}
+
+void SaveModSettings(const Settings& aSettings)
+{
+    const auto file = GCyberpunkMpLocation / ModSettingsFileName;
+    nlohmann::json json = nlohmann::json::object();
+    try
+    {
+        std::ifstream in(file);
+        if (in)
+            json = nlohmann::json::parse(in);
+    }
+    catch (...)
+    {
+    }
+    json["debugMode"] = aSettings.debugMode;
+    std::ofstream out(file);
+    out << json.dump(2);
+}
+
+// --debug-mode:1, --debug-mode=1, --debug-mode 1 (and 0 to force it off). Read from the raw command line, so it works
+// whichever way the game's own parser splits it; it also works in Steam's launch options.
+std::optional<bool> DebugModeLaunchOption()
+{
+    const wchar_t* line = GetCommandLineW();
+    if (!line)
+        return std::nullopt;
+    const std::wstring text(line);
+    const std::wstring key = L"-debug-mode";
+    const auto pos = text.find(key);
+    if (pos == std::wstring::npos)
+        return std::nullopt;
+    for (size_t i = pos + key.size(); i < text.size(); ++i)
+    {
+        const wchar_t c = text[i];
+        if (c == L':' || c == L'=' || c == L' ' || c == L'"')
+            continue;
+        if (c == L'1')
+            return true;
+        if (c == L'0')
+            return false;
+        break;
+    }
+    return true; // bare --debug-mode
+}
 } // namespace
+
+void Settings::ApplyLogLevel()
+{
+    spdlog::set_level(Get().debugMode ? spdlog::level::trace : spdlog::level::info);
+}
+
+void Settings::SetDebugMode(bool aEnabled)
+{
+    auto& settings = Get();
+    settings.debugMode = aEnabled;
+    SaveModSettings(settings);
+    ApplyLogLevel();
+    spdlog::info("[Settings] debug mode {}{}", aEnabled ? "on" : "off",
+                 settings.debugModeFromLaunchOption ? " (the launch option still decides at the next start)" : "");
+}
 
 bool Settings::ApplyConnectString(const std::string& acConnect)
 {
@@ -96,6 +177,16 @@ bool Settings::ApplyConnectString(const std::string& acConnect)
 void Settings::Load()
 {
     Settings& settings = Get();
+
+    LoadModSettings(settings);
+    if (const auto option = DebugModeLaunchOption())
+    {
+        settings.debugMode = *option;
+        settings.debugModeFromLaunchOption = true;
+    }
+    ApplyLogLevel();
+    spdlog::info("[Settings] debug mode {} ({})", settings.debugMode ? "on" : "off",
+                 settings.debugModeFromLaunchOption ? "launch option" : "settings.json");
 
     auto& launchParameters = RED4ext::GetLaunchParameters();
 
@@ -164,4 +255,6 @@ void Settings::Load()
         settings.autoConnect = true;
 
     LoadSessionFile(settings, hasCommandLineAddress);
+
+    App::CrashHandler::LogEnvironment();
 }

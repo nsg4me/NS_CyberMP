@@ -24,7 +24,7 @@ async function newestFiles (dir, pattern, count) {
 }
 
 // Everything needed to diagnose a problem, in one zip in Downloads.
-export async function collectLogs ({ gamePath, modDir, hostLines, launcherVersion, requirements }) {
+export async function collectLogs ({ gamePath, modDir, hostLines, launcherVersion, requirements, logDir }) {
   const zip = new AdmZip()
   const add = async (file, name) => {
     try {
@@ -36,7 +36,24 @@ export async function collectLogs ({ gamePath, modDir, hostLines, launcherVersio
   }
 
   const included = []
-  if (await add(path.join(modDir, 'CyberpunkMP.log'), 'CyberpunkMP.log')) included.push('CyberpunkMP.log')
+  // This session's log, the previous session's (kept when the game restarts), and older size-capped parts
+  for (const name of ['CyberpunkMP.log', 'CyberpunkMP.prev.log', 'CyberpunkMP.1.log', 'CyberpunkMP.2.log', 'settings.json']) {
+    if (await add(path.join(modDir, name), name)) included.push(name)
+  }
+
+  // Newest crash dump written by the mod's crash logging, plus the list of all of them
+  const dumps = await newestFiles(path.join(modDir, 'crashes'), /\.dmp$/i, 50)
+  if (dumps.length) {
+    zip.addFile('crashes.txt', Buffer.from(dumps.map((f) => path.basename(f)).join('\n')))
+    if (await add(dumps[0], `crashes/${path.basename(dumps[0])}`)) included.push(`crashes/${path.basename(dumps[0])}`)
+  }
+
+  // The launcher's own log files (hosting, server output, installs), newest 3 sessions
+  if (logDir) {
+    for (const file of await newestFiles(logDir, /^launcher-.*\.log$/, 3)) {
+      if (await add(file, `launcher/${path.basename(file)}`)) included.push(`launcher/${path.basename(file)}`)
+    }
+  }
 
   if (gamePath) {
     const root = path.dirname(path.dirname(path.dirname(gamePath)))

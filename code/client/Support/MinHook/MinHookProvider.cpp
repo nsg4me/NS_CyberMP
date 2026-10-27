@@ -22,15 +22,30 @@ bool Support::MinHookProvider::HookAttach(uintptr_t aAddress, void* aCallback)
 
 bool Support::MinHookProvider::HookAttach(uintptr_t aAddress, void* aCallback, void** aOriginal)
 {
-    if (MH_CreateHook(reinterpret_cast<void*>(aAddress), aCallback, aOriginal) != MH_OK)
-        return false;
+    // Logged with the address relative to the game executable, so a failing hook can be matched to the game build.
+    const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    const auto where = aAddress >= base ? aAddress - base : aAddress;
 
-    if (MH_EnableHook(reinterpret_cast<void*>(aAddress)) != MH_OK)
+    if (!aAddress)
     {
+        spdlog::error("[Hook] target address not found (address library lookup failed)");
+        return false;
+    }
+
+    if (const auto status = MH_CreateHook(reinterpret_cast<void*>(aAddress), aCallback, aOriginal); status != MH_OK)
+    {
+        spdlog::error("[Hook] exe+{:#x}: create failed ({})", where, MH_StatusToString(status));
+        return false;
+    }
+
+    if (const auto status = MH_EnableHook(reinterpret_cast<void*>(aAddress)); status != MH_OK)
+    {
+        spdlog::error("[Hook] exe+{:#x}: enable failed ({})", where, MH_StatusToString(status));
         MH_RemoveHook(reinterpret_cast<void*>(aAddress));
         return false;
     }
 
+    spdlog::debug("[Hook] exe+{:#x} attached", where);
     return true;
 }
 

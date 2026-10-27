@@ -51,7 +51,10 @@ void InterpolateEntity(flecs::entity aEntity, const EntityComponent& aEntityComp
     }
 
     if (aInterpolation.TimePoints.empty())
+    {
+        ++SyncDiagnostics::StarvedFrames;
         return;
+    }
 
     const auto& first = aInterpolation.PreviousFrame;
     const auto& second = aInterpolation.TimePoints.front();
@@ -170,6 +173,8 @@ void InterpolationSystem::OnConnected()
     const auto pNetworkService = Core::Container::Get<NetworkService>();
 
     const float cSimulationDelay = 50.f + (1500.f / pNetworkService->GetServerSettings().get_update_rate());
+    spdlog::info("[Sync] interpolation started: {:.0f} ms behind the server clock, update rate {}", cSimulationDelay,
+                 pNetworkService->GetServerSettings().get_update_rate());
 
     const auto pSystem = Red::GetGameSystem<NetworkWorldSystem>();
     const auto pMoveSystem = Red::GetGameSystem<RED4ext::vehicle::IMoveSystem>();
@@ -201,16 +206,34 @@ void InterpolationSystem::HandleNotifyEntityMove(const PacketEvent<server::Notif
         rotation = {0.f, 0.f, aMessage.get_rotation()};
 
     ++SyncDiagnostics::MovesReceived;
+    SyncDiagnostics::LastReceivedTick = aMessage.get_tick();
 
     if (!entity)
+    {
+        if (SyncDiagnostics::MovesUnknownEntity++ == 0 || SyncDiagnostics::Every("move-unknown", std::chrono::seconds(10)))
+            spdlog::warn("[Sync] move for server id {} which is not spawned here (dropped)", aMessage.get_id());
         return;
+    }
 
     // Moves can arrive while the remote character is still spawning, before the observer has given it an
     // InterpolationComponent (flecs 4 get_mut returns null then). ensure adds it, so early moves are kept too.
     auto& interpolation = entity.ensure<InterpolationComponent>();
 
+    const auto now = std::chrono::steady_clock::now();
+    if (interpolation.Received == 0)
+        spdlog::info("[Sync] first move for server id {} at ({:.1f}, {:.1f}, {:.1f}) tick {} (local tick {})",
+                     aMessage.get_id(), position.x, position.y, position.z, aMessage.get_tick(), NetworkWorldSystem::GetTick());
+    else if (now - interpolation.LastReceived > std::chrono::seconds(1))
+        spdlog::warn("[Sync] no moves for server id {} for {} ms", aMessage.get_id(),
+                     std::chrono::duration_cast<std::chrono::milliseconds>(now - interpolation.LastReceived).count());
+    interpolation.LastReceived = now;
+    ++interpolation.Received;
+
     if (!interpolation.TimePoints.empty() && interpolation.TimePoints.back().Tick > aMessage.get_tick())
+    {
+        ++SyncDiagnostics::MovesOutOfOrder;
         return;
+    }
 
     interpolation.TimePoints.push_back(InterpolationComponent::Timepoint{position, rotation, aMessage.get_speed(), aMessage.get_tick()});
 }
@@ -244,6 +267,7 @@ void HookIdleController_SetAnimation(Game::Controller* apController, AnimationDa
                 if (flecsEntity)
                 {
                     flecsEntity.get_mut<EntityComponent>()->Controller = pController;
+                    spdlog::info("[Sync]   -> given to server id {} (spawned)", flecsEntity.id());
                 }
                 else
                 {
@@ -252,8 +276,14 @@ void HookIdleController_SetAnimation(Game::Controller* apController, AnimationDa
                     if (flecsEntity)
                     {
                         flecsEntity.get_mut<SpawningComponent>()->Controller = pController;
+                        spdlog::info("[Sync]   -> given to server id {} (still spawning)", flecsEntity.id());
                     }
-                }                
+                    else
+                    {
+                        ++SyncDiagnostics::ControllerOrphans;
+                        spdlog::warn("[Sync]   -> no tracked entity has game id {}: controller is not used", id.hash);
+                    }
+                }
             });
 
             return;
@@ -267,6 +297,7 @@ void HookIdleController_SetAnimation(Game::Controller* apController, AnimationDa
 void InterpolationSystem::OnInitialize(const RED4ext::JobHandle& aJob)
 {
     Hook<Game::IdleController_SetAnimation>(&HookIdleController_SetAnimation, &RealIdleController_SetAnimation);
+    spdlog::info("[Sync] idle-controller hook requested (remote characters get their movement controller through it)");
 
     const auto pNetworkService = Core::Container::Get<NetworkService>();
     pNetworkService->RegisterHandler<&InterpolationSystem::HandleNotifyEntityMove>(this);

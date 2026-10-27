@@ -58,3 +58,18 @@ list** are accepted.
 - Friends joining by address (no Steam): forward **UDP 11778** to your PC; behind CGNAT that will not work.
 - The server has no password support (the protocol never had one); it is private because it is not listed and the
   relay only accepts your Steam friends.
+
+## Logs and debug mode
+
+Press **Collect logs** in the launcher on every PC involved; it makes one zip in Downloads with the mod log (this and
+the previous game session), the newest crash dump, the launcher/server log, RED4ext and redscript logs.
+
+- Each log line is tagged: `[Net]` connection, `[Relay]` Steam tunnel, `[Party]` lobby, `[Spawn]` remote characters,
+  `[Appearance]` clothes/body, `[Sync]`/`[Move]` movement, `[Vehicle]`, `[Script/Time]` Sandevistan and other slow-mo,
+  `[Script/Player]` death/scenes/combat, `[Perf]` long frames, `[Crash]` crashes, `[Env]` game version and other mods.
+- Type `/mark something happened` in chat at the moment something goes wrong: a `[MARK]` line lands in both players'
+  logs, so they can be lined up.
+- **Debug mode** adds very detailed lines (every equipment slot, status effects, per-item traces). Turn it on with the
+  game launch option `--debug-mode:1` (and `--debug-mode:0` forces it off); it is otherwise remembered in
+  `mod/settings.json`.
+- Crashes write the faulting module and call stack into `CyberpunkMP.log` and a `.dmp` file into `mod/crashes/`.

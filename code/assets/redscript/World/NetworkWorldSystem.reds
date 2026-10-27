@@ -9,6 +9,9 @@ public native class NetworkWorldSystem extends IGameSystem {
     public native func ShouldAutoConnect() -> Bool;
     public native func SetMainMenuVisible(visible: Bool) -> Void;
     public native func SetPauseMenuVisible(visible: Bool) -> Void;
+    public native func Log(category: String, message: String) -> Void;
+    public native func IsDebugMode() -> Bool;
+    public native func SetDebugMode(enabled: Bool) -> Void;
     public native func GetPlayerColor(entityId: EntityID) -> Vector4;
     public native func GetEntityIdByServerId(serverId: Uint64) -> EntityID;
     public native func GetAppearanceSystem() -> ref<AppearanceSystem>;

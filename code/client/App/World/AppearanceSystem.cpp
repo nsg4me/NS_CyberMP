@@ -59,7 +59,8 @@ Vector<String> AppearanceSystem::GetPlayerItems(Red::Handle<Red::GameObject> pla
 
 void AppearanceSystem::AddEntity(const Red::EntityID entityID, const Red::DynArray<Red::TweakDBID>& items, const Vector<uint8_t> ccstate)
 {
-    spdlog::info("Logging Entity Appearance: {}", entityID.hash);
+    spdlog::info("[Appearance] stored for game id {}: {} items, customization {} bytes", entityID.hash, items.Size(),
+                 ccstate.size());
     m_playerEquipment[entityID] = items;
     m_playerCcstate[entityID] = ccstate;
 }
@@ -67,13 +68,22 @@ void AppearanceSystem::AddEntity(const Red::EntityID entityID, const Red::DynArr
 void AddItems(Red::Handle<Red::game::Object> & object, Red::DynArray<Red::TweakDBID> const & items, game::ui::CharacterCustomizationState const * state)
 {
     auto system = Red::GetGameSystem<Red::game::ITransactionSystem>();
+    const auto entityHash = object ? object->entityID.hash : 0;
+    int worn = 0, failed = 0;
     for (auto item : items)
     {
+        // Readable name (e.g. Items.Jacket_01_basic_01) or the raw id when TweakDB does not know it (another mod's item)
+        Red::CString itemName;
+        Red::CallStatic("gamedataTDBIDHelper", "ToStringDEBUG", itemName, item);
+        const std::string name = itemName.Length() ? itemName.c_str() : fmt::format("<unknown {:016x}>", item.value);
+
         auto itemID = Red::ItemID();
         ItemID_Create(&itemID, item, -1);
         if (!itemID.IsValid())
         {
-            spdlog::warn("ItemID creation failed");
+            spdlog::warn("[Appearance] game id {}: ItemID creation failed for {} (item missing from TweakDB here: a "
+                         "mod only one side has?)", entityHash, name);
+            ++failed;
             continue;
         }
 
@@ -81,7 +91,8 @@ void AddItems(Red::Handle<Red::game::Object> & object, Red::DynArray<Red::TweakD
         GetItemRecord(&item_record, item);
         if (!item_record)
         {
-            spdlog::warn("Item record not found");
+            spdlog::warn("[Appearance] game id {}: no item record for {}", entityHash, name);
+            ++failed;
             continue;
         }
         
@@ -89,7 +100,8 @@ void AddItems(Red::Handle<Red::game::Object> & object, Red::DynArray<Red::TweakD
         GetPlacementSlot(item_record.instance, &placementSlotHandle, 0);
         if (!placementSlotHandle)
         {
-            spdlog::warn("Placement slot not found... kinda weird");
+            spdlog::warn("[Appearance] game id {}: no placement slot for {}", entityHash, name);
+            ++failed;
             continue;
         }
 
@@ -128,10 +140,10 @@ void AddItems(Red::Handle<Red::game::Object> & object, Red::DynArray<Red::TweakD
         //         }
         //     }
         // }
-        spdlog::info("Adding {} to {} with \"{}\"", str.c_str(), placementStr.c_str(), appearance);
         Red::CString redAppStr;
         GetItemAppearanceName(&redAppStr, object, object, item_record, itemID);
-        spdlog::info("* computed suffix: {}", redAppStr.c_str());
+        spdlog::info("[Appearance] game id {}: {} -> slot {}, appearance \"{}\" + suffix \"{}\"", entityHash, str.c_str(),
+                     placementStr.c_str(), appearance, redAppStr.c_str());
         appearance.append(redAppStr.c_str());
 
         appearanceName = appearance.c_str();
@@ -153,14 +165,19 @@ void AddItems(Red::Handle<Red::game::Object> & object, Red::DynArray<Red::TweakD
                              Game::Arg("garmentAppearanceName", appearanceName)});
             if (!added)
             {
-                spdlog::info("AddItemToSlot failed");
+                spdlog::warn("[Appearance] game id {}: AddItemToSlot failed for {}", entityHash, name);
+                ++failed;
             }
+            else
+                ++worn;
         }
         else
         {
-            spdlog::info("GiveItem failed");
+            spdlog::warn("[Appearance] game id {}: GiveItem failed for {}", entityHash, name);
+            ++failed;
         }
     }
+    spdlog::info("[Appearance] game id {}: {} of {} items worn, {} failed", entityHash, worn, items.Size(), failed);
 }
 
 bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
@@ -174,13 +191,13 @@ bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
     auto bytes = m_playerCcstate[object.instance->entityID];
     if (bytes.size() == 0) 
     {
-        spdlog::info("no bytes for {}", object->entityID.hash);
+        spdlog::warn("[Appearance] game id {}: no customization data (default look)", object->entityID.hash);
         return false;
     }
 
     object.instance->displayName.unk08 = Red::CString("Test");
 
-    spdlog::info("Loaded bytes: {}", bytes.size());
+    spdlog::info("[Appearance] game id {}: applying, customization {} bytes", object->entityID.hash, bytes.size());
 
     Red::Handle<game::ui::CharacterCustomizationState> stateHandle;
     CreateHandle_CharacterCustomizationState(&stateHandle);
@@ -298,7 +315,8 @@ bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
 
     if (stateHandle)
     {
-        spdlog::info("Scheduling change");
+        spdlog::info("[Appearance] game id {}: scheduling body/face change ({})", object->entityID.hash,
+                     Game::Compat::IsBodyGenderMale(stateHandle.instance) ? "male" : "female");
 
         Red::DynArray<Game::Compat::EntityAppearanceChangeParameter::Key> keys;
         Game::Compat::GetCustomization(Game::Compat::CCState_GetHeadCustomization, stateHandle.instance, "TPP", true, keys);
@@ -384,11 +402,12 @@ bool AppearanceSystem::ApplyAppearance(Red::Handle<Red::game::Object> object)
             // // Red::CallVirtual(apprSystem, "AddBodyParts", object, stateHandle.instance->isBodyGenderMale);
             
         };
+        spdlog::info("[Appearance]   {} customization keys", keys.Size());
         ScheduleSynchronizedAppearanceChanges(changer, weakHandle, &old_keys, &new_keys, callback, 0);
     }
     else
     {
-        spdlog::warn("CustomizationState was null");
+        spdlog::warn("[Appearance] customization state could not be created");
     }
 
     return true;

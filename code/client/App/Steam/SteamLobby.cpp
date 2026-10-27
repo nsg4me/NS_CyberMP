@@ -246,6 +246,7 @@ void SteamLobby::Leave()
     if (!m_available || !m_lobby)
         return;
 
+    spdlog::info("[Party] left lobby {}", m_lobby);
     if (s_api.leaveLobby)
         s_api.leaveLobby(s_api.mm, m_lobby);
     if (s_api.setRichPresence)
@@ -267,6 +268,7 @@ void SteamLobby::Kick(uint64_t aSteamId)
     const auto key = fmt::format("kick_{}", aSteamId);
     s_api.setData(s_api.mm, m_lobby, key.c_str(), "1");
     SteamRelay::Get().Kick(aSteamId);
+    spdlog::info("[Party] host removed {}", aSteamId);
 
     const auto name = s_api.personaName ? Str(s_api.personaName(s_api.friends, aSteamId)) : std::string();
     Overlay::Toast(fmt::format("Removed {} from the party", name.empty() ? "the player" : name));
@@ -278,12 +280,14 @@ void SteamLobby::EndSession()
         return;
 
     s_api.setData(s_api.mm, m_lobby, "ended", "1");
+    spdlog::info("[Party] host ended the session");
     Overlay::Toast("Session ended: everyone has been sent back");
     // The host stays in the (now ended) lobby briefly so members see the flag; it is left with the game.
 }
 
 void SteamLobby::LeaveBecause(const char* acToast)
 {
+    spdlog::info("[Party] leaving the party: {}", acToast);
     Overlay::Toast(acToast);
     if (auto network = Core::Container::Get<NetworkService>(); network && network->IsConnected())
         network->Close();
@@ -355,12 +359,15 @@ void SteamLobby::OnLobbyEnter(const void* apData)
         s_api.setData(s_api.mm, m_lobby, "version", m_version.c_str());
         s_api.setData(s_api.mm, m_lobby, "connect", m_pendingConnect.c_str());
         s_api.setData(s_api.mm, m_lobby, "game", "ns-cybermp");
+        spdlog::info("[Party] published lobby data: version '{}' connect '{}'", m_version, m_pendingConnect);
         Overlay::Toast("Party created: invite friends from the Steam overlay");
     }
     else
     {
         const auto hostVersion = Str(s_api.getData(s_api.mm, m_lobby, "version"));
         const auto connect = Str(s_api.getData(s_api.mm, m_lobby, "connect"));
+        spdlog::info("[Party] lobby data: host {} version '{}' connect '{}' game '{}'", m_hostAtJoin, hostVersion, connect,
+                     Str(s_api.getData(s_api.mm, m_lobby, "game")));
 
         if (hostVersion != m_version)
         {
@@ -397,6 +404,8 @@ void SteamLobby::OnLobbyChatUpdate(const void* apData)
 
     const auto name = s_api.personaName ? Str(s_api.personaName(s_api.friends, data->userChanged)) : std::string();
     const bool entered = (data->stateChange & kMemberEntered) != 0;
+    spdlog::info("[Party] {} ({}) {} the lobby (state change 0x{:x})", name, data->userChanged,
+                 entered ? "joined" : "left", data->stateChange);
     Overlay::Toast(fmt::format("{} {} the party", name.empty() ? "A player" : name, entered ? "joined" : "left"));
     m_nextRefresh = {};
 }
@@ -504,6 +513,18 @@ void SteamLobby::Refresh()
         self.state = m_localState;
         snapshot.members.push_back(std::move(self));
         snapshot.status = Settings::Get().host ? "Starting the party..." : "Not in a party";
+    }
+
+    // Logged only when something changes, so the log shows every state the party went through.
+    std::string summary = fmt::format("status '{}'", snapshot.status);
+    for (const auto& member : snapshot.members)
+        summary += fmt::format(" | {}{} ({}) state={} connected={} version={}", member.isHost ? "[host] " : "",
+                               member.name, member.steamId, member.state.empty() ? "-" : member.state,
+                               member.connected, member.version.empty() ? "-" : member.version);
+    if (summary != m_lastLoggedSummary)
+    {
+        spdlog::info("[Party] {}", summary);
+        m_lastLoggedSummary = std::move(summary);
     }
 
     std::lock_guard _(m_lock);

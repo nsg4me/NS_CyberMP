@@ -1,7 +1,7 @@
 // Hosting from this PC: run the bundled server, open its port on the router, and start the game connected to it.
 // Friends join through Steam (the mod advertises the public address as a Steam "Join Game" connect string).
 import { spawn } from 'child_process'
-import { promises as fs, existsSync } from 'fs'
+import { promises as fs, existsSync, appendFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
 import path from 'path'
 import electron from 'electron'
 import * as upnp from './upnp.js'
@@ -19,7 +19,34 @@ function setStatus (patch) {
   notify(status)
 }
 
+// Everything shown in the hosting log (server output included, uncapped) also goes to a file per launcher session, in
+// <user data>/logs; the newest 5 sessions are kept and included in "Collect logs".
+let logFile = null
+export function logDir () {
+  return path.join(electron.app.getPath('userData'), 'logs')
+}
+function openLogFile () {
+  if (logFile !== null) return logFile
+  try {
+    const dir = logDir()
+    mkdirSync(dir, { recursive: true })
+    const old = readdirSync(dir).filter((n) => /^launcher-.*\.log$/.test(n)).sort()
+    for (const name of old.slice(0, Math.max(0, old.length - 4))) {
+      try { unlinkSync(path.join(dir, name)) } catch {}
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    logFile = path.join(dir, `launcher-${stamp}.log`)
+  } catch {
+    logFile = ''
+  }
+  return logFile
+}
+
 function log (line) {
+  const file = openLogFile()
+  if (file) {
+    try { appendFileSync(file, `[${new Date().toISOString()}] ${line}\n`) } catch {}
+  }
   const lines = [...status.lines, line].slice(-200)
   setStatus({ lines })
 }

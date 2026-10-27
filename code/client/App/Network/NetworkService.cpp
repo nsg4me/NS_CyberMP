@@ -2,6 +2,7 @@
 #include "App/Steam/SteamService.h"
 #include "App/Steam/SteamLobby.h"
 #include "App/Steam/SteamRelay.h"
+#include "App/World/SyncDiagnostics.h"
 #include "App/Rendering/Overlay.h"
 
 #include "App/World/NetworkWorldSystem.h"
@@ -40,7 +41,7 @@ void NetworkService::OnConsume(const void* apData, uint32_t aSize)
 
 void NetworkService::OnConnected()
 {
-    spdlog::info("Connected to server.");
+    spdlog::info("[Net] connected to the server, authenticating");
 
     client::AuthenticationRequest request;
     // Steam name when available (the server shows it in chat and the player list); the server has no auth.
@@ -54,12 +55,18 @@ void NetworkService::OnConnected()
     request.set_client_protocol(client::kIdentifier);
     request.set_server_protocol(server::kIdentifier);
 
+    spdlog::info("[Net] auth request: name '{}', SteamID {}, protocol client {:x} / server {:x}", username,
+                 App::SteamRelay::Get().GetLocalSteamId(), client::kIdentifier, server::kIdentifier);
     Send(request);
 }
 
 void NetworkService::OnDisconnected(EDisconnectReason aReason)
 {
-    spdlog::info("Disconnected from server {}", static_cast<uint32_t>(aReason));
+    static constexpr const char* kReasons[] = {"timeout (never connected)", "local problem (connection lost)",
+                                               "closed by the server", "address not resolved", "aborted by us",
+                                               "normal"};
+    const auto index = static_cast<uint32_t>(aReason);
+    spdlog::info("[Net] disconnected: {} ({})", index < std::size(kReasons) ? kReasons[index] : "?", index);
     Red::GetGameSystem<NetworkWorldSystem>()->OnDisconnected(aReason);
 
     m_authenticated = false;
@@ -104,6 +111,18 @@ void NetworkService::OnGameUpdate(RED4ext::CGameApplication* apApp)
 {
     Update();
 
+    // Network health every 5 s while connected: latency, quality, throughput and what is still queued.
+    if (IsConnected() && SyncDiagnostics::Every("net-status", std::chrono::seconds(5)))
+    {
+        const auto status = GetConnectionStatus();
+        const auto stats = GetStatistics();
+        spdlog::info("[Net] ping {} ms, quality local {:.0f}% / remote {:.0f}%, out {:.1f} KB/s, in {:.1f} KB/s, "
+                     "queued reliable {} B / unreliable {} B, server tick {}",
+                     status.m_nPing, status.m_flConnectionQualityLocal * 100.f,
+                     status.m_flConnectionQualityRemote * 100.f, stats.SentBytes / 1024.f, stats.RecvBytes / 1024.f,
+                     status.m_cbPendingReliable, status.m_cbPendingUnreliable, GetClock().GetCurrentTick());
+    }
+
     if (m_reconnectAt && std::chrono::steady_clock::now() >= *m_reconnectAt)
     {
         m_reconnectAt.reset();
@@ -115,6 +134,8 @@ void NetworkService::OnGameUpdate(RED4ext::CGameApplication* apApp)
 
 void NetworkService::HandleAuthentication(const PacketEvent<server::AuthenticationResponse>& aResponse)
 {
+    spdlog::info("[Net] auth response: {}{}", aResponse.get_success() ? "accepted" : "REFUSED: ",
+                 aResponse.get_success() ? "" : aResponse.get_error().c_str());
     if (!aResponse.get_success())
     {
         // Handle the error message here
@@ -124,6 +145,7 @@ void NetworkService::HandleAuthentication(const PacketEvent<server::Authenticati
     }
 
     m_settings = aResponse.get_settings();
+    spdlog::info("[Net] server update rate {} Hz", m_settings.get_update_rate());
 
     m_reconnectAttempts = 0;
     m_reconnectAt.reset();

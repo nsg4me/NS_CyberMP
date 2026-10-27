@@ -27,6 +27,13 @@ struct Settings
     bool debugMenu = false;
     fs::path RpcPath{};
 
+    // Debug mode: very detailed logging (every item, move gaps, per-event traces) on top of the normal summaries.
+    // Saved in the mod's settings.json; the launch option --debug-mode:1 / --debug-mode:0 overrides it for that run.
+    bool debugMode = false;
+    bool debugModeFromLaunchOption = false;
+    static void SetDebugMode(bool aEnabled); // saves it and applies the log level now
+    static void ApplyLogLevel();
+
     // Set by the launcher's "Host game" (cpmp-session.json): this player runs the server, and friends reach it at
     // publicAddress ("ip:port"), which is advertised to Steam friends as the join address.
     bool host = false;

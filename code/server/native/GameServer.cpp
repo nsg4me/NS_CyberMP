@@ -1,4 +1,5 @@
 #include "GameServer.h"
+#include "ServerDiagnostics.h"
 
 #include <Components/PlayerComponent.h>
 
@@ -91,6 +92,8 @@ void GameServer::OnUpdate()
     m_dispatcher.update();
 
     m_pWorld->Update(std::chrono::duration_cast<std::chrono::duration<float>>(delta).count());
+
+    ServerDiagnostics::Report();
 }
 
 void GameServer::OnConsume(const void* apData, uint32_t aSize, ConnectionId aConnectionId)
@@ -107,12 +110,12 @@ void GameServer::OnConsume(const void* apData, uint32_t aSize, ConnectionId aCon
 
 void GameServer::OnConnection(ConnectionId aHandle)
 {
-    spdlog::debug("Connection received {:x}", aHandle);
+    spdlog::info("[Net] connection {:x} opened", aHandle);
 }
 
 void GameServer::OnDisconnection(ConnectionId aConnectionId, EDisconnectReason aReason)
 {
-    spdlog::debug("Connection ended {:x}", aConnectionId);
+    spdlog::info("[Net] connection {:x} closed (reason {})", aConnectionId, static_cast<int>(aReason));
 
     auto* pPlayerManager = GetWorld()->get_mut<PlayerManager>();
 
@@ -125,6 +128,8 @@ void GameServer::OnDisconnection(ConnectionId aConnectionId, EDisconnectReason a
             GetWorld()->get_mut<Level>()->Remove(pPlayerComponent->Puppet);
         }
 
+        if (auto* pPlayerComponent = player.get<PlayerComponent>())
+            spdlog::info("[Net] player '{}' (steam {}) left", pPlayerComponent->Username.c_str(), pPlayerComponent->SteamId);
         player.destruct();
 
         spdlog::info("{}/{} player(s) online", pPlayerManager->Count(), m_config.MaxPlayer);
@@ -157,7 +162,7 @@ void GameServer::HandleAuthentication(const PacketEvent<client::AuthenticationRe
         return;
     }
 
-    spdlog::info("Authorize connection from {} with token {}", aRequest.get_username(), aRequest.get_token());
+    spdlog::info("[Net] connection {:x}: player {} (steam {}) authenticated with token {}", aRequest.ConnectionId, aRequest.get_username(), aRequest.get_steam_id(), aRequest.get_token());
     response.set_success(true);
 
     server::Settings settings;
