@@ -16,6 +16,15 @@ func MpDebug() -> Bool {
     return IsDefined(system) && system.IsDebugMode();
 }
 
+// Record names are not available in the shipped game (ToStringDEBUG returns ""): fall back to the numeric id.
+func MpId(id: TweakDBID) -> String {
+    let name = TDBID.ToStringDEBUG(id);
+    if StrLen(name) > 0 {
+        return name;
+    }
+    return "0x" + ToString(TDBID.ToNumber(id));
+}
+
 func MpWho(puppet: ref<GameObject>) -> String {
     if !IsDefined(puppet) {
         return "?";
@@ -98,7 +107,7 @@ protected cb func OnSceneTierChange(newState: Int32) -> Bool {
 protected cb func OnItemAddedToSlot(evt: ref<ItemAddedToSlot>) -> Bool {
     let slot = evt.GetSlotID();
     if MpDebug() || Equals(slot, t"AttachmentSlots.WeaponRight") || Equals(slot, t"AttachmentSlots.WeaponLeft") {
-        MpLog("Equip", MpWho(this) + ": " + TDBID.ToStringDEBUG(ItemID.GetTDBID(evt.GetItemID())) + " -> " + TDBID.ToStringDEBUG(slot));
+        MpLog("Equip", MpWho(this) + ": " + MpId(ItemID.GetTDBID(evt.GetItemID())) + " -> " + MpId(slot));
     }
     return wrappedMethod(evt);
 }
@@ -107,7 +116,7 @@ protected cb func OnItemAddedToSlot(evt: ref<ItemAddedToSlot>) -> Bool {
 protected cb func OnItemRemovedFromSlot(evt: ref<ItemRemovedFromSlot>) -> Bool {
     let slot = evt.GetSlotID();
     if MpDebug() || Equals(slot, t"AttachmentSlots.WeaponRight") || Equals(slot, t"AttachmentSlots.WeaponLeft") {
-        MpLog("Equip", MpWho(this) + ": " + TDBID.ToStringDEBUG(ItemID.GetTDBID(evt.GetItemID())) + " removed from " + TDBID.ToStringDEBUG(slot));
+        MpLog("Equip", MpWho(this) + ": " + MpId(ItemID.GetTDBID(evt.GetItemID())) + " removed from " + MpId(slot));
     }
     return wrappedMethod(evt);
 }
@@ -115,7 +124,7 @@ protected cb func OnItemRemovedFromSlot(evt: ref<ItemRemovedFromSlot>) -> Bool {
 @wrapMethod(PlayerPuppet)
 protected cb func OnStatusEffectApplied(evt: ref<ApplyStatusEffectEvent>) -> Bool {
     if MpDebug() && IsDefined(evt.staticData) {
-        MpLog("Status", MpWho(this) + ": + " + TDBID.ToStringDEBUG(evt.staticData.GetID()));
+        MpLog("Status", MpWho(this) + ": + " + MpId(evt.staticData.GetID()));
     }
     return wrappedMethod(evt);
 }
@@ -123,7 +132,7 @@ protected cb func OnStatusEffectApplied(evt: ref<ApplyStatusEffectEvent>) -> Boo
 @wrapMethod(PlayerPuppet)
 protected cb func OnStatusEffectRemoved(evt: ref<RemoveStatusEffect>) -> Bool {
     if MpDebug() && IsDefined(evt.staticData) {
-        MpLog("Status", MpWho(this) + ": - " + TDBID.ToStringDEBUG(evt.staticData.GetID()));
+        MpLog("Status", MpWho(this) + ": - " + MpId(evt.staticData.GetID()));
     }
     return wrappedMethod(evt);
 }

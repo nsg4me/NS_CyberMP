@@ -2,6 +2,7 @@
 #include "ServerDiagnostics.h"
 
 #include <Components/PlayerComponent.h>
+#include <Components/VehicleComponent.h>
 
 #include "Core/Filesystem.h"
 #include "Game/Level.h"
@@ -126,6 +127,19 @@ void GameServer::OnDisconnection(ConnectionId aConnectionId, EDisconnectReason a
         if (auto* pPlayerComponent = player.get<PlayerComponent>())
         {
             GetWorld()->get_mut<Level>()->Remove(pPlayerComponent->Puppet);
+        }
+
+        // Their shared vehicles go with them (destroying the player would delete them silently, leaving every other
+        // player with a parked ghost car).
+        std::vector<flecs::entity> vehicles;
+        player.children([&vehicles](flecs::entity aChild) {
+            if (aChild.has<VehicleComponent>())
+                vehicles.push_back(aChild);
+        });
+        for (auto vehicle : vehicles)
+        {
+            spdlog::info("[Vehicle] removing vehicle {:x} of the player who left", vehicle.id());
+            GetWorld()->get_mut<Level>()->Remove(vehicle);
         }
 
         if (auto* pPlayerComponent = player.get<PlayerComponent>())

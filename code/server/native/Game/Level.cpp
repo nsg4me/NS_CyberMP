@@ -157,6 +157,46 @@ void Level::AddPlayer(flecs::entity aEntity) noexcept
             spdlog::info("[Spawn] telling new player '{}' to load existing {:x}", pPlayerComponent->Username.c_str(), aEntity.id());
             GServer->Send(pPlayerComponent->Connection, Serialize(aEntity));
         });
+
+    // Vehicles shared before this player (re)joined, then who sits in them: otherwise a car someone is already
+    // driving never appears for them, and its moves are dropped.
+    const auto connection = pPlayerComponent->Connection;
+    const auto name = std::string(pPlayerComponent->Username.c_str());
+    GetWorld()->each(
+        [player = aEntity, connection, &name](flecs::entity aVehicle, const VehicleComponent& aVehicleComponent,
+                                              const MovementComponent& aMovement)
+        {
+            if (aVehicle.parent() == player)
+                return;
+
+            common::Vector3 pos;
+            pos.set_x(aMovement.Position.x);
+            pos.set_y(aMovement.Position.y);
+            pos.set_z(aMovement.Position.z);
+
+            server::NotifyVehicleLoad load;
+            load.set_position(pos);
+            load.set_id(aVehicle);
+            load.set_rotation(aMovement.Rotation.z);
+            load.set_tweak_id(aVehicleComponent.TweakDBID);
+            spdlog::info("[Vehicle] telling new player '{}' to load existing vehicle {:x}", name, aVehicle.id());
+            GServer->Send(connection, load);
+        });
+
+    GetWorld()->each(
+        [player = aEntity, connection, &name](flecs::entity aCharacter, const AttachmentComponent& aAttachment)
+        {
+            if (aCharacter.parent() == player || !aAttachment.Parent.is_alive())
+                return;
+
+            server::NotifyVehicleEnter enter;
+            enter.set_vehicle_id(aAttachment.Parent);
+            enter.set_character_id(aCharacter);
+            enter.set_sit_id(aAttachment.SlotId);
+            spdlog::info("[Vehicle] telling new player '{}' that {:x} sits in vehicle {:x}", name, aCharacter.id(),
+                         aAttachment.Parent.id());
+            GServer->Send(connection, enter);
+        });
 }
 
 void Level::RemovePlayer(flecs::entity aEntity) noexcept
