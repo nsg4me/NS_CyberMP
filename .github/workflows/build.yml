@@ -102,7 +102,9 @@ jobs:
       # The mod reads this to tell players apart by version (and the launcher compares it with the latest release)
       - name: 'Stamp version'
         shell: bash
-        run: printf '%s' "$CPMP_VERSION" > distrib/launcher/mod/version.txt
+        # Line 1: version shown to players. Line 2: the commit, which decides whether two players can play together
+        # (a tagged release and a dev build of the same commit are the same code).
+        run: printf '%s\n%s' "$CPMP_VERSION" "$GITHUB_SHA" > distrib/launcher/mod/version.txt
 
       - name: 'Package build'
         run: xmake pack

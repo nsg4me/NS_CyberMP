@@ -125,6 +125,18 @@ std::string ReadVersion()
     return version.empty() ? std::string("dev") : version;
 }
 
+// The commit the mod was built from (second line of version.txt); empty for local builds.
+std::string ReadBuild()
+{
+    std::ifstream in(GCyberpunkMpLocation / "version.txt");
+    std::string line;
+    std::getline(in, line);
+    std::getline(in, line);
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+        line.pop_back();
+    return line;
+}
+
 // "+connect_lobby <id>": Steam adds this when it starts the game from a lobby invite.
 uint64_t LobbyFromCommandLine()
 {
@@ -194,6 +206,7 @@ bool SteamLobby::Init()
         return false;
 
     m_version = ReadVersion();
+    m_build = ReadBuild();
 
     s_enterCallback.callbackId = kLobbyEnterId;
     s_api.registerCallback(&s_enterCallback, kLobbyEnterId);
@@ -204,7 +217,7 @@ bool SteamLobby::Init()
 
     m_available = true;
     m_initTried = true;
-    spdlog::info("[Party] Steam lobbies ready (version {})", m_version);
+    spdlog::info("[Party] Steam lobbies ready (version {}, build {})", m_version, m_build.empty() ? "unknown" : m_build);
 
     if (const auto lobby = LobbyFromCommandLine())
     {
@@ -366,6 +379,15 @@ void SteamLobby::PublishLocal()
     s_api.setMemberData(s_api.mm, m_lobby, "modhash", m_modsHash.c_str());
     s_api.setMemberData(s_api.mm, m_lobby, "mods", list.c_str());
     m_nextRefresh = {};
+}
+
+// Same code if built from the same commit (a tagged release and the dev build of that commit differ only in name);
+// builds without a recorded commit fall back to comparing the version names.
+bool SteamLobby::SameBuild(const std::string& acHostVersion, const std::string& acHostBuild) const
+{
+    if (!acHostBuild.empty() && !m_build.empty())
+        return acHostBuild == m_build;
+    return acHostVersion == m_version;
 }
 
 std::string SteamLobby::Activity() const
@@ -549,6 +571,7 @@ void SteamLobby::OnLobbyEnter(const void* apData)
     if (isHost)
     {
         s_api.setData(s_api.mm, m_lobby, "version", m_version.c_str());
+        s_api.setData(s_api.mm, m_lobby, "build", m_build.c_str());
         s_api.setData(s_api.mm, m_lobby, "connect", m_pendingConnect.c_str());
         s_api.setData(s_api.mm, m_lobby, "game", "ns-cybermp");
         spdlog::info("[Party] published lobby data: version '{}' connect '{}'", m_version, m_pendingConnect);
@@ -561,7 +584,7 @@ void SteamLobby::OnLobbyEnter(const void* apData)
         spdlog::info("[Party] lobby data: host {} version '{}' connect '{}' game '{}'", m_hostAtJoin, hostVersion, connect,
                      Str(s_api.getData(s_api.mm, m_lobby, "game")));
 
-        if (hostVersion != m_version)
+        if (!SameBuild(hostVersion, Str(s_api.getData(s_api.mm, m_lobby, "build"))))
         {
             spdlog::warn("[Party] version mismatch: host {} vs {}", hostVersion, m_version);
             Overlay::Toast(fmt::format("Version mismatch: host has {}, you have {}. Update before joining.", hostVersion,
@@ -655,7 +678,8 @@ void SteamLobby::Refresh()
         snapshot.inLobby = true;
         snapshot.isHost = ownerId == m_localSteamId;
         const auto hostVersion = Str(s_api.getData(s_api.mm, m_lobby, "version"));
-        snapshot.versionMismatch = !snapshot.isHost && hostVersion != m_version;
+        snapshot.versionMismatch =
+            !snapshot.isHost && !SameBuild(hostVersion, Str(s_api.getData(s_api.mm, m_lobby, "build")));
 
         const int count = s_api.numMembers(s_api.mm, m_lobby);
         for (int i = 0; i < count && i < kMaxMembers; ++i)

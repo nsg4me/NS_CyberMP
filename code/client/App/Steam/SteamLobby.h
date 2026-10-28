@@ -84,6 +84,7 @@ private:
     void PublishLocal();
     void LeaveBecause(const char* acToast);
     std::string Activity() const;
+    bool SameBuild(const std::string& acHostVersion, const std::string& acHostBuild) const;
     void UpdatePings(const Snapshot& acSnapshot);
     void CheckMods(uint64_t aHostId);
 
@@ -97,6 +98,7 @@ private:
     std::string m_localState = "menu";
     bool m_localConnected = false;
     std::string m_version;
+    std::string m_build; // commit the mod was built from
 
     std::mutex m_lock;
     Snapshot m_snapshot;

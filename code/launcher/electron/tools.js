@@ -106,7 +106,7 @@ export async function collectLogs ({ gamePath, modDir, hostLines, launcherVersio
     launcherVersion,
     modInGame,
     modDir,
-    modVersion: (await fs.readFile(path.join(modDir, 'version.txt'), 'utf8').catch(() => 'unknown')).trim(),
+    modVersion: (await fs.readFile(path.join(modDir, 'version.txt'), 'utf8').catch(() => 'unknown')).trim().split(/\r?\n/).join(' @ '),
     platform: `${process.platform} ${os.release()}`,
     gamePath,
     requirements,

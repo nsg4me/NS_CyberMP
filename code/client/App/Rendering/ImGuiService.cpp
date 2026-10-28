@@ -107,6 +107,9 @@ void ImGuiService::OnRenderInit()
         const auto scaleFromReference = std::min(static_cast<float>(resx) / 1920.0f, static_cast<float>(resy) / 1080.0f);
 
         auto& io = ImGui::GetIO();
+        // Never touch the Windows cursor: the game hides it and draws its own. ImGui's backend set the arrow cursor
+        // every frame, which left the real mouse pointer visible on top of the game.
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
        // io.Fonts->Clear();
         #if 0
         // tmp:
